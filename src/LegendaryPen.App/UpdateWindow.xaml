@@ -1,16 +1,16 @@
 <Window x:Class="LegendaryPen.App.UpdateWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Style="{StaticResource ThemedWindow}"
         Title="Mise à jour de Legendary Pen"
-        Width="440"
+        Width="470"
         SizeToContent="Height"
-        ResizeMode="NoResize"
         ShowInTaskbar="False"
         Topmost="True"
         WindowStartupLocation="CenterScreen">
-    <StackPanel Margin="18">
+    <StackPanel Margin="18,6,18,18">
         <TextBlock x:Name="HeadingText" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" />
-        <TextBlock x:Name="VersionsText" Margin="0,4,0,0" Foreground="#666666" />
+        <TextBlock x:Name="VersionsText" Margin="0,4,0,0" Foreground="{StaticResource MutedBrush}" />
 
         <ItemsControl x:Name="NotesList" Margin="0,12,0,0">
             <ItemsControl.ItemTemplate>
@@ -33,7 +33,7 @@
 
         <TextBlock x:Name="ErrorText"
                    Margin="0,12,0,0"
-                   Foreground="#C62828"
+                   Foreground="{StaticResource ErrorBrush}"
                    TextWrapping="Wrap"
                    Visibility="Collapsed" />
 
@@ -41,12 +41,10 @@
             <Button x:Name="UpdateNowButton"
                     Content="Mettre à jour"
                     MinWidth="110"
-                    Padding="8,4"
                     IsDefault="True"
                     Click="OnUpdateClicked" />
             <Button Content="Plus tard"
                     MinWidth="90"
-                    Padding="8,4"
                     Margin="8,0,0,0"
                     IsCancel="True"
                     Click="OnLaterClicked" />

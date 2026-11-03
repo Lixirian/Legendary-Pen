@@ -157,7 +157,7 @@ public partial class App : Application
             }
             catch (InvalidOperationException exception)
             {
-                MessageBox.Show(exception.Message, "Legendary Pen", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageWindow.Show(exception.Message);
             }
             finally
             {
@@ -206,11 +206,7 @@ public partial class App : Application
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or COMException)
         {
-            MessageBox.Show(
-                $"La capture n'a pas pu être enregistrée : {exception.Message}",
-                "Legendary Pen",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
+            MessageWindow.Show($"La capture n'a pas pu être enregistrée : {exception.Message}");
         }
     }
 
@@ -349,10 +345,6 @@ public partial class App : Application
 
     private static void ReportSettingsFailure(string message)
     {
-        MessageBox.Show(
-            $"Réglages de Legendary Pen. {message}",
-            "Legendary Pen",
-            MessageBoxButton.OK,
-            MessageBoxImage.Warning);
+        MessageWindow.Show($"Réglages de Legendary Pen. {message}");
     }
 }

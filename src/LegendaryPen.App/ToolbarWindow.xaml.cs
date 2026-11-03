@@ -702,11 +702,7 @@ public partial class ToolbarWindow : Window
         }
 
         _hotKeyFailureReported = true;
-        MessageBox.Show(
-            $"Le raccourci {binding.Format()} est déjà utilisé par une autre application. Les boutons de la barre restent disponibles, et les réglages permettent d'en choisir un autre.",
-            "Legendary Pen",
-            MessageBoxButton.OK,
-            MessageBoxImage.Warning);
+        MessageWindow.Show($"Le raccourci {binding.Format()} est déjà utilisé par une autre application. Les boutons de la barre restent disponibles, et les réglages permettent d'en choisir un autre.");
     }
 
     private IntPtr OnWindowMessage(IntPtr window, int message, IntPtr wParam, IntPtr lParam, ref bool handled)

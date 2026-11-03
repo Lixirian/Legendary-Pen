@@ -1,0 +1,21 @@
+<Window x:Class="LegendaryPen.App.MessageWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Style="{StaticResource ThemedWindow}"
+        Title="Legendary Pen"
+        Width="454"
+        SizeToContent="Height"
+        ShowInTaskbar="False"
+        Topmost="True"
+        WindowStartupLocation="CenterScreen">
+    <StackPanel Margin="18,8,18,18">
+        <TextBlock x:Name="MessageText" TextWrapping="Wrap" />
+        <Button Content="OK"
+                MinWidth="90"
+                Margin="0,16,0,0"
+                HorizontalAlignment="Right"
+                IsDefault="True"
+                IsCancel="True"
+                Click="OnOkClicked" />
+    </StackPanel>
+</Window>

@@ -58,12 +58,12 @@ public partial class SettingsWindow : Window
         {
             var row = new DockPanel { Margin = new Thickness(0, 2, 8, 2) };
 
-            var clear = new Button { Content = "Aucun", Padding = new Thickness(8, 0, 8, 0), Margin = new Thickness(6, 0, 0, 0) };
+            var clear = new Button { Content = "Aucun", Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(6, 0, 0, 0) };
             AutomationProperties.SetName(clear, $"Désactiver : {definition.Label}");
             clear.Click += (_, _) => SetHotkey(definition.Action, HotkeyBinding.None);
             DockPanel.SetDock(clear, Dock.Right);
 
-            var box = new TextBox { Width = 160, IsReadOnly = true, Padding = new Thickness(4, 1, 4, 1), IsReadOnlyCaretVisible = false };
+            var box = new TextBox { Width = 160, IsReadOnly = true, Padding = new Thickness(6, 3, 6, 3), IsReadOnlyCaretVisible = false };
             AutomationProperties.SetName(box, definition.Label);
             box.PreviewKeyDown += (_, args) => OnHotkeyKey(definition.Action, args);
             DockPanel.SetDock(box, Dock.Right);
