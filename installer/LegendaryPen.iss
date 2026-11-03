@@ -26,7 +26,11 @@ ArchitecturesInstallIn64BitMode=x64compatible
 OutputBaseFilename=LegendaryPen-Setup-{#AppVersion}
 Compression=lzma2/max
 SolidCompression=yes
-WizardStyle=modern
+; Même apparence que l'application, quel que soit le thème de Windows, à l'installation comme à la désinstallation.
+WizardStyle=modern dark hidebevels
+WizardBackColor=#202124
+WizardImageFile=images\wizard-large-100.png,images\wizard-large-150.png,images\wizard-large-200.png
+WizardSmallImageFile=images\wizard-small-100.png,images\wizard-small-150.png,images\wizard-small-200.png
 SetupIconFile=..\src\LegendaryPen.App\legendary-pen.ico
 UninstallDisplayIcon={app}\LegendaryPen.exe
 UninstallDisplayName=Legendary Pen
