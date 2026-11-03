@@ -107,6 +107,12 @@ internal static partial class Win32
         SetWindowPos(window, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
     }
 
+    public static PixelPoint GetPointer()
+    {
+        GetCursorPos(out var point);
+        return new PixelPoint(point.X, point.Y);
+    }
+
     public static PixelRect GetBounds(IntPtr window)
     {
         GetWindowRect(window, out var rect);
@@ -158,6 +164,10 @@ internal static partial class Win32
     private static partial short GetAsyncKeyState(int virtualKey);
 
     [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetCursorPos(out NativePoint point);
+
+    [LibraryImport("user32.dll")]
     private static partial IntPtr GetWindowLongPtrW(IntPtr window, int index);
 
     [LibraryImport("user32.dll")]
@@ -186,6 +196,13 @@ internal static partial class Win32
     private static extern bool GetMonitorInfoW(IntPtr monitor, ref MonitorInfo info);
 
     private delegate bool MonitorEnumProc(IntPtr monitor, IntPtr deviceContext, IntPtr clip, IntPtr data);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        public int X;
+        public int Y;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct NativeRect

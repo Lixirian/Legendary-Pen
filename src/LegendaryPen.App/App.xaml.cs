@@ -51,11 +51,27 @@ public partial class App : Application
 
         PixelPoint? savedPosition = _settings is { ToolbarX: { } x, ToolbarY: { } y } ? new PixelPoint(x, y) : null;
         _updates = UpdateService.IsEnabled ? new UpdateService() : null;
-        _toolbar = new ToolbarWindow(_state, _pen, histories, _overlays, _updates, monitors, savedPosition, _settings.ToolbarVertical);
+        _toolbar = new ToolbarWindow(
+            _state,
+            _pen,
+            histories,
+            _overlays,
+            _updates,
+            monitors,
+            savedPosition,
+            _settings.ToolbarVertical,
+            ToolbarDocking.Sanitize(_settings.ToolbarDock),
+            _settings.ToolbarDockMonitor,
+            ToolbarDocking.CollapseDelay(_settings.ToolbarCollapseSeconds));
         _toolbar.PositionChanged += OnToolbarMoved;
         _toolbar.OrientationChanged += () =>
         {
-            _settings = _settings with { ToolbarVertical = _toolbar.IsVertical };
+            _settings = _settings with
+            {
+                ToolbarVertical = _toolbar.IsVertical,
+                ToolbarDock = _toolbar.Dock,
+                ToolbarDockMonitor = _toolbar.DockMonitor,
+            };
             RestartSaveTimer();
         };
         _toolbar.Show();
@@ -76,7 +92,7 @@ public partial class App : Application
         _displayChangeTimer.Tick += (_, _) => ApplyDisplayChange();
         SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
 
-        _instanceGuard.ListenForRevealRequests(() => Dispatcher.BeginInvoke(() => _toolbar.Reveal()));
+        _instanceGuard.ListenForRevealRequests(() => Dispatcher.BeginInvoke(() => _toolbar.ExpandAndReveal()));
 
         if (_updates is not null)
         {
@@ -146,7 +162,13 @@ public partial class App : Application
     private void OnToolbarMoved()
     {
         var position = _toolbar!.Position;
-        _settings = _settings with { ToolbarX = position.X, ToolbarY = position.Y };
+        _settings = _settings with
+        {
+            ToolbarX = position.X,
+            ToolbarY = position.Y,
+            ToolbarDock = _toolbar.Dock,
+            ToolbarDockMonitor = _toolbar.DockMonitor,
+        };
         RestartSaveTimer();
     }
 

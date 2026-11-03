@@ -11,6 +11,7 @@
         ShowActivated="False"
         Topmost="True"
         Opacity="0"
+        PreviewMouseDown="OnToolbarPressed"
         SizeToContent="WidthAndHeight">
 
     <Window.Resources>
@@ -88,6 +89,27 @@
     </Window.Resources>
 
     <Border Background="#F0202124" CornerRadius="12" Padding="4">
+        <Grid>
+        <Button x:Name="ExpandButton"
+                Visibility="Collapsed"
+                ToolTip="Déplier la barre"
+                AutomationProperties.Name="Déplier la barre"
+                Click="OnExpandClicked">
+            <Grid>
+                <Image x:Name="ExpandIcon"
+                       Width="28"
+                       Height="28"
+                       RenderOptions.BitmapScalingMode="HighQuality" />
+                <Ellipse x:Name="ExpandBadge"
+                         Width="10"
+                         Height="10"
+                         Margin="0,-3,-5,0"
+                         HorizontalAlignment="Right"
+                         VerticalAlignment="Top"
+                         Fill="#FFFF5252"
+                         Visibility="Collapsed" />
+            </Grid>
+        </Button>
         <WrapPanel x:Name="ToolbarPanel">
             <Border x:Name="Grip"
                     Background="Transparent"
@@ -290,5 +312,6 @@
                     AutomationProperties.Name="Quitter"
                     Click="OnQuitClicked" />
         </WrapPanel>
+        </Grid>
     </Border>
 </Window>

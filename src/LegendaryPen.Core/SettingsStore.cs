@@ -12,6 +12,12 @@ public sealed record AppSettings
 
     public bool ToolbarVertical { get; init; }
 
+    public ToolbarDock ToolbarDock { get; init; }
+
+    public string? ToolbarDockMonitor { get; init; }
+
+    public double? ToolbarCollapseSeconds { get; init; }
+
     public bool FadingEnabled { get; init; }
 
     public double? FadeDelaySeconds { get; init; }

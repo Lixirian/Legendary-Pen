@@ -5,6 +5,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using LegendaryPen.Core;
 
@@ -19,6 +20,7 @@ public partial class ToolbarWindow : Window
     private const double GripThickness = 20;
     private const double SeparatorLength = 24;
     private const double WindowChrome = 8;
+    private const double SnapDistance = 48;
 
     private readonly AppState _state;
     private readonly PenState _pen;
@@ -27,6 +29,8 @@ public partial class ToolbarWindow : Window
     private readonly UpdateService? _updates;
     private readonly PixelPoint? _savedPosition;
     private readonly List<ToggleButton> _swatches = [];
+    private readonly DispatcherTimer _collapseTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
+    private readonly TimeSpan _collapseDelay;
     private readonly ToggleButton[] _sizeButtons;
     private readonly ToggleButton[] _toolButtons;
     private readonly (uint Modifiers, uint Key, string Label, Action Run)[] _drawHotKeys;
@@ -38,6 +42,8 @@ public partial class ToolbarWindow : Window
     private bool _hotKeyFailureReported;
     private bool _refreshing;
     private bool _dialogOpen;
+    private bool _collapsed;
+    private DateTime _lastInteraction = DateTime.UtcNow;
 
     public ToolbarWindow(
         AppState state,
@@ -47,9 +53,15 @@ public partial class ToolbarWindow : Window
         UpdateService? updates,
         IReadOnlyList<MonitorArea> monitors,
         PixelPoint? savedPosition,
-        bool vertical)
+        bool vertical,
+        ToolbarDock dock,
+        string? dockMonitor,
+        TimeSpan collapseDelay)
     {
         IsVertical = vertical;
+        Dock = dock;
+        DockMonitor = dockMonitor;
+        _collapseDelay = collapseDelay;
         _state = state;
         _pen = pen;
         _histories = histories;
@@ -64,7 +76,9 @@ public partial class ToolbarWindow : Window
         _toolButtons = [PenButton, HighlighterButton, EraserButton, LineButton, ArrowButton, RectangleButton, EllipseButton, TextButton];
         _drawHotKeys = CreateDrawHotKeys();
         CreateSwatches();
+        ExpandIcon.Source = LoadApplicationIcon();
         ApplyOrientation();
+        _collapseTimer.Tick += OnCollapseTimerTick;
 
         _state.Changed += Refresh;
         _pen.Changed += Refresh;
@@ -83,7 +97,14 @@ public partial class ToolbarWindow : Window
         }
     }
 
+    /// <summary>Orientation choisie pour la barre lorsqu'elle est libre.</summary>
     public bool IsVertical { get; private set; }
+
+    public ToolbarDock Dock { get; private set; }
+
+    public string? DockMonitor { get; private set; }
+
+    private bool EffectiveVertical => ToolbarDocking.IsVertical(Dock, IsVertical);
 
     public event Action? PositionChanged;
 
@@ -92,8 +113,23 @@ public partial class ToolbarWindow : Window
     /// <summary>Remet la barre au premier plan et sur un écran disponible.</summary>
     public void Reveal()
     {
-        PlaceOnScreen(Position);
+        if (Dock == ToolbarDock.None)
+        {
+            PlaceOnScreen(Position);
+        }
+        else
+        {
+            PlaceDocked();
+        }
+
         Win32.BringToTop(_handle);
+    }
+
+    /// <summary>Déplie la barre : second lancement de l'application ou clic dans la barre des tâches.</summary>
+    public void ExpandAndReveal()
+    {
+        SetCollapsed(false);
+        Reveal();
     }
 
     public void UpdateMonitors(IReadOnlyList<MonitorArea> monitors)
@@ -108,6 +144,7 @@ public partial class ToolbarWindow : Window
     {
         _availableUpdate = manifest;
         UpdateButton.Visibility = Visibility.Visible;
+        ExpandBadge.Visibility = Visibility.Visible;
     }
 
     public void OfferUpdate()
@@ -133,6 +170,7 @@ public partial class ToolbarWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        _collapseTimer.Stop();
         Win32.UnregisterGlobalHotKey(_handle, ToggleModeHotKey);
         SetDrawHotKeys(false);
         base.OnClosed(e);
@@ -149,8 +187,18 @@ public partial class ToolbarWindow : Window
         SizeToContent = SizeToContent.WidthAndHeight;
         UpdateLayout();
 
-        PlaceOnScreen(_savedPosition);
+        if (Dock == ToolbarDock.None)
+        {
+            PlaceOnScreen(_savedPosition);
+        }
+        else
+        {
+            PlaceDocked();
+        }
+
         Opacity = 1;
+        _lastInteraction = DateTime.UtcNow;
+        _collapseTimer.Start();
     }
 
     private void PlaceOnScreen(PixelPoint? preferred)
@@ -166,6 +214,72 @@ public partial class ToolbarWindow : Window
             primary.WorkArea));
     }
 
+    private void PlaceDocked()
+    {
+        var size = Win32.GetBounds(_handle);
+        Win32.MoveTo(_handle, ToolbarDocking.Place(Dock, size.Width, size.Height, FindBarMonitor().WorkArea));
+    }
+
+    private MonitorArea FindBarMonitor()
+    {
+        var bounds = Win32.GetBounds(_handle);
+        var centerX = bounds.Left + (bounds.Width / 2);
+        var centerY = bounds.Top + (bounds.Height / 2);
+
+        return (Dock != ToolbarDock.None ? _monitors.FirstOrDefault(candidate => candidate.DeviceName == DockMonitor) : null)
+            ?? _monitors.FirstOrDefault(candidate => candidate.Bounds.Contains(centerX, centerY))
+            ?? _monitors.FirstOrDefault(candidate => candidate.IsPrimary)
+            ?? _monitors[0];
+    }
+
+    private void SetCollapsed(bool collapsed)
+    {
+        _lastInteraction = DateTime.UtcNow;
+
+        if (collapsed == _collapsed)
+        {
+            return;
+        }
+
+        _collapsed = collapsed;
+        ToolbarPanel.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
+        ExpandButton.Visibility = collapsed ? Visibility.Visible : Visibility.Collapsed;
+
+        UpdateLayout();
+        Reveal();
+        PlaceAfterLayout();
+    }
+
+    private void OnCollapseTimerTick(object? sender, EventArgs e)
+    {
+        var shouldCollapse = ToolbarDocking.ShouldCollapse(
+            Dock,
+            DateTime.UtcNow - _lastInteraction,
+            _collapseDelay,
+            IsMouseOver,
+            _dialogOpen,
+            _collapsed);
+
+        if (shouldCollapse)
+        {
+            SetCollapsed(true);
+        }
+    }
+
+    private static BitmapFrame LoadApplicationIcon()
+    {
+        var decoder = new IconBitmapDecoder(
+            new Uri("pack://application:,,,/legendary-pen.ico"),
+            BitmapCreateOptions.None,
+            BitmapCacheOption.OnLoad);
+
+        return decoder.Frames.Where(frame => frame.PixelWidth <= 64).MaxBy(frame => frame.PixelWidth) ?? decoder.Frames[0];
+    }
+
+    private void OnToolbarPressed(object sender, MouseButtonEventArgs e) => _lastInteraction = DateTime.UtcNow;
+
+    private void OnExpandClicked(object sender, RoutedEventArgs e) => SetCollapsed(false);
+
     // La nouvelle taille n'est connue qu'une fois la mise en page terminée.
     private void PlaceAfterLayout()
     {
@@ -174,36 +288,36 @@ public partial class ToolbarWindow : Window
 
     private void ApplyOrientation()
     {
-        var orientation = IsVertical ? Orientation.Vertical : Orientation.Horizontal;
+        var orientation = EffectiveVertical ? Orientation.Vertical : Orientation.Horizontal;
 
         ToolbarPanel.Orientation = orientation;
         SwatchPanel.Orientation = orientation;
         SizeSlider.Orientation = orientation;
 
-        SizeSlider.Width = IsVertical ? double.NaN : 90;
-        SizeSlider.Height = IsVertical ? 90 : double.NaN;
-        SizeSlider.Margin = IsVertical ? new Thickness(0, 4, 0, 4) : new Thickness(4, 0, 4, 0);
+        SizeSlider.Width = EffectiveVertical ? double.NaN : 90;
+        SizeSlider.Height = EffectiveVertical ? 90 : double.NaN;
+        SizeSlider.Margin = EffectiveVertical ? new Thickness(0, 4, 0, 4) : new Thickness(4, 0, 4, 0);
 
-        Grip.Width = IsVertical ? ToolButtonSpan : GripThickness;
-        Grip.Height = IsVertical ? GripThickness : ToolButtonSpan;
-        GripGlyph.Text = IsVertical ? "" : "";
+        Grip.Width = EffectiveVertical ? ToolButtonSpan : GripThickness;
+        Grip.Height = EffectiveVertical ? GripThickness : ToolButtonSpan;
+        GripGlyph.Text = EffectiveVertical ? "" : "";
 
         foreach (var separator in ToolbarPanel.Children.OfType<Border>().Where(child => Equals(child.Tag, "Separator")))
         {
-            separator.Width = IsVertical ? SeparatorLength : 1;
-            separator.Height = IsVertical ? 1 : SeparatorLength;
-            separator.Margin = IsVertical ? new Thickness(0, 4, 0, 4) : new Thickness(4, 0, 4, 0);
+            separator.Width = EffectiveVertical ? SeparatorLength : 1;
+            separator.Height = EffectiveVertical ? 1 : SeparatorLength;
+            separator.Margin = EffectiveVertical ? new Thickness(0, 4, 0, 4) : new Thickness(4, 0, 4, 0);
             separator.HorizontalAlignment = HorizontalAlignment.Center;
             separator.VerticalAlignment = VerticalAlignment.Center;
         }
 
         foreach (var swatch in _swatches)
         {
-            swatch.Width = IsVertical ? ToolButtonSpan - 4 : 30;
-            swatch.Height = IsVertical ? 30 : ToolButtonSpan - 4;
+            swatch.Width = EffectiveVertical ? ToolButtonSpan - 4 : 30;
+            swatch.Height = EffectiveVertical ? 30 : ToolButtonSpan - 4;
         }
 
-        OrientationButton.ToolTip = IsVertical ? "Mettre la barre à l'horizontale" : "Mettre la barre à la verticale";
+        OrientationButton.ToolTip = EffectiveVertical ? "Mettre la barre à l'horizontale" : "Mettre la barre à la verticale";
         UpdateSizeLimit();
     }
 
@@ -215,16 +329,11 @@ public partial class ToolbarWindow : Window
             return;
         }
 
-        var bounds = Win32.GetBounds(_handle);
-        var centerX = bounds.Left + (bounds.Width / 2);
-        var centerY = bounds.Top + (bounds.Height / 2);
-        var monitor = _monitors.FirstOrDefault(candidate => candidate.Bounds.Contains(centerX, centerY))
-            ?? _monitors.FirstOrDefault(candidate => candidate.IsPrimary)
-            ?? _monitors[0];
+        var monitor = FindBarMonitor();
         var scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
 
-        ToolbarPanel.MaxWidth = IsVertical ? double.PositiveInfinity : (monitor.WorkArea.Width / scale) - WindowChrome;
-        ToolbarPanel.MaxHeight = IsVertical ? (monitor.WorkArea.Height / scale) - WindowChrome : double.PositiveInfinity;
+        ToolbarPanel.MaxWidth = EffectiveVertical ? double.PositiveInfinity : (monitor.WorkArea.Width / scale) - WindowChrome;
+        ToolbarPanel.MaxHeight = EffectiveVertical ? (monitor.WorkArea.Height / scale) - WindowChrome : double.PositiveInfinity;
     }
 
     private void CreateSwatches()
@@ -400,6 +509,7 @@ public partial class ToolbarWindow : Window
         // Un clic sur le bouton de la barre des tâches ramène la barre devant les overlays.
         if (message == Win32.WmActivate && wParam != IntPtr.Zero)
         {
+            SetCollapsed(false);
             Win32.BringToTop(_handle);
             return IntPtr.Zero;
         }
@@ -428,6 +538,21 @@ public partial class ToolbarWindow : Window
     private void OnGripPressed(object sender, MouseButtonEventArgs e)
     {
         DragMove();
+        _lastInteraction = DateTime.UtcNow;
+
+        // Le bord se cherche sur l'écran où le pointeur vient de déposer la barre.
+        var previousDock = Dock;
+        var pointer = Win32.GetPointer();
+        var monitor = _monitors.FirstOrDefault(candidate => candidate.Bounds.Contains(pointer.X, pointer.Y)) ?? FindBarMonitor();
+        var threshold = (int)(SnapDistance * VisualTreeHelper.GetDpi(this).DpiScaleX);
+        Dock = ToolbarDocking.Detect(pointer, monitor.WorkArea, threshold);
+        DockMonitor = Dock == ToolbarDock.None ? null : monitor.DeviceName;
+
+        if (Dock != previousDock)
+        {
+            ApplyOrientation();
+        }
+
         UpdateSizeLimit();
         PlaceAfterLayout();
         PositionChanged?.Invoke();
@@ -435,7 +560,10 @@ public partial class ToolbarWindow : Window
 
     private void OnOrientationClicked(object sender, RoutedEventArgs e)
     {
-        IsVertical = !IsVertical;
+        // Tourner une barre attachée la détache : l'orientation d'un bord est imposée.
+        IsVertical = !EffectiveVertical;
+        Dock = ToolbarDock.None;
+        DockMonitor = null;
         ApplyOrientation();
         PlaceAfterLayout();
         OrientationChanged?.Invoke();
