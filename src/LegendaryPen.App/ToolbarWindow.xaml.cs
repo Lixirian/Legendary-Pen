@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media.Animation;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
@@ -21,6 +22,10 @@ public partial class ToolbarWindow : Window
     private const double SeparatorLength = 24;
     private const double WindowChrome = 8;
     private const double SnapDistance = 48;
+    private const double CornerRadius = 12;
+    private const double WaveIconShift = 4;
+
+    private static readonly Duration SlideDuration = new(TimeSpan.FromMilliseconds(240));
 
     private readonly AppState _state;
     private readonly PenState _pen;
@@ -44,6 +49,8 @@ public partial class ToolbarWindow : Window
     private bool _dialogOpen;
     private bool _collapsed;
     private DateTime _lastInteraction = DateTime.UtcNow;
+    private int _slideRequest;
+    private BoardBackground _placedBackground;
 
     public ToolbarWindow(
         AppState state,
@@ -217,7 +224,12 @@ public partial class ToolbarWindow : Window
     private void PlaceDocked()
     {
         var size = Win32.GetBounds(_handle);
-        Win32.MoveTo(_handle, ToolbarDocking.Place(Dock, size.Width, size.Height, FindBarMonitor().WorkArea));
+        Win32.MoveTo(_handle, ToolbarDocking.Place(Dock, size.Width, size.Height, DockArea(FindBarMonitor())));
+    }
+
+    private PixelRect DockArea(MonitorArea monitor)
+    {
+        return ToolbarDocking.DockArea(_state.Background, monitor.Bounds, monitor.WorkArea);
     }
 
     private MonitorArea FindBarMonitor()
@@ -242,12 +254,57 @@ public partial class ToolbarWindow : Window
         }
 
         _collapsed = collapsed;
-        ToolbarPanel.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
-        ExpandButton.Visibility = collapsed ? Visibility.Visible : Visibility.Collapsed;
 
-        UpdateLayout();
-        Reveal();
-        PlaceAfterLayout();
+        var request = ++_slideRequest;
+        var leaving = collapsed ? (FrameworkElement)BarSurface : ExpandButton;
+        var arriving = collapsed ? (FrameworkElement)ExpandButton : BarSurface;
+
+        Slide(leaving, show: false, () =>
+        {
+            if (request != _slideRequest)
+            {
+                return;
+            }
+
+            // La fenêtre change de taille pendant que rien n'est visible : aucun saut à l'écran.
+            leaving.Visibility = Visibility.Collapsed;
+            arriving.Opacity = 0;
+            arriving.Visibility = Visibility.Visible;
+            UpdateLayout();
+
+            Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, () =>
+            {
+                if (request != _slideRequest)
+                {
+                    return;
+                }
+
+                Reveal();
+                Slide(arriving, show: true, null);
+                arriving.Opacity = 1;
+            });
+        });
+    }
+
+    /// <summary>Fait monter ou redescendre un élément derrière le bord ; la fenêtre le coupe à l'écran.</summary>
+    private void Slide(FrameworkElement element, bool show, Action? completed)
+    {
+        var (x, y) = ToolbarDocking.HiddenOffset(Dock, element.ActualWidth, element.ActualHeight);
+        var distance = x != 0 ? x : y;
+        var transform = new TranslateTransform();
+        element.RenderTransform = transform;
+
+        var animation = new DoubleAnimation(show ? distance : 0, show ? 0 : distance, SlideDuration)
+        {
+            EasingFunction = new SineEase { EasingMode = show ? EasingMode.EaseOut : EasingMode.EaseIn },
+        };
+
+        if (completed is not null)
+        {
+            animation.Completed += (_, _) => completed();
+        }
+
+        transform.BeginAnimation(x != 0 ? TranslateTransform.XProperty : TranslateTransform.YProperty, animation);
     }
 
     private void OnCollapseTimerTick(object? sender, EventArgs e)
@@ -317,8 +374,37 @@ public partial class ToolbarWindow : Window
             swatch.Height = EffectiveVertical ? 30 : ToolButtonSpan - 4;
         }
 
+        ApplyDockAppearance();
         OrientationButton.ToolTip = EffectiveVertical ? "Mettre la barre à l'horizontale" : "Mettre la barre à la verticale";
         UpdateSizeLimit();
+    }
+
+    // Le côté attaché reste droit, et la vague garde sa base contre le bord.
+    private void ApplyDockAppearance()
+    {
+        var radius = CornerRadius;
+
+        BarSurface.RenderTransform = null;
+        BarSurface.CornerRadius = Dock switch
+        {
+            ToolbarDock.Top => new System.Windows.CornerRadius(0, 0, radius, radius),
+            ToolbarDock.Bottom => new System.Windows.CornerRadius(radius, radius, 0, 0),
+            ToolbarDock.Left => new System.Windows.CornerRadius(0, radius, radius, 0),
+            ToolbarDock.Right => new System.Windows.CornerRadius(radius, 0, 0, radius),
+            _ => new System.Windows.CornerRadius(radius),
+        };
+
+        WavePath.LayoutTransform = new RotateTransform(ToolbarDocking.WaveAngle(Dock));
+
+        // Le creux de la vague est plus épais côté bord : l'icône s'y loge.
+        WaveContent.Margin = Dock switch
+        {
+            ToolbarDock.Top => new Thickness(0, 0, 0, WaveIconShift),
+            ToolbarDock.Bottom => new Thickness(0, WaveIconShift, 0, 0),
+            ToolbarDock.Left => new Thickness(0, 0, WaveIconShift, 0),
+            ToolbarDock.Right => new Thickness(WaveIconShift, 0, 0, 0),
+            _ => default,
+        };
     }
 
     // Une barre plus grande que son écran passe sur une colonne ou une ligne supplémentaire.
@@ -332,8 +418,8 @@ public partial class ToolbarWindow : Window
         var monitor = FindBarMonitor();
         var scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
 
-        ToolbarPanel.MaxWidth = EffectiveVertical ? double.PositiveInfinity : (monitor.WorkArea.Width / scale) - WindowChrome;
-        ToolbarPanel.MaxHeight = EffectiveVertical ? (monitor.WorkArea.Height / scale) - WindowChrome : double.PositiveInfinity;
+        ToolbarPanel.MaxWidth = EffectiveVertical ? double.PositiveInfinity : (DockArea(monitor).Width / scale) - WindowChrome;
+        ToolbarPanel.MaxHeight = EffectiveVertical ? (DockArea(monitor).Height / scale) - WindowChrome : double.PositiveInfinity;
     }
 
     private void CreateSwatches()
@@ -400,6 +486,19 @@ public partial class ToolbarWindow : Window
         ClearButton.IsEnabled = _state.AnnotationsVisible;
 
         SetDrawHotKeys(_state.CanDraw && !_dialogOpen && !_overlays.IsEditingText);
+
+        // Ouvrir ou fermer un tableau montre ou cache la barre des tâches : la barre attachée suit.
+        if (_placedBackground != _state.Background)
+        {
+            _placedBackground = _state.Background;
+
+            if (Dock != ToolbarDock.None)
+            {
+                UpdateSizeLimit();
+                PlaceAfterLayout();
+            }
+        }
+
         Win32.BringToTop(_handle);
     }
 
@@ -545,7 +644,7 @@ public partial class ToolbarWindow : Window
         var pointer = Win32.GetPointer();
         var monitor = _monitors.FirstOrDefault(candidate => candidate.Bounds.Contains(pointer.X, pointer.Y)) ?? FindBarMonitor();
         var threshold = (int)(SnapDistance * VisualTreeHelper.GetDpi(this).DpiScaleX);
-        Dock = ToolbarDocking.Detect(pointer, monitor.WorkArea, threshold);
+        Dock = ToolbarDocking.Detect(pointer, DockArea(monitor), threshold);
         DockMonitor = Dock == ToolbarDock.None ? null : monitor.DeviceName;
 
         if (Dock != previousDock)

@@ -78,6 +78,40 @@ public static class ToolbarDocking
         return TimeSpan.FromSeconds(Math.Clamp(seconds ?? DefaultCollapseSeconds, MinCollapseSeconds, MaxCollapseSeconds));
     }
 
+    /// <summary>
+    /// Zone où attacher la barre : un tableau recouvre aussi la barre des tâches, donc tout l'écran ;
+    /// sinon, la barre des tâches reste visible et la barre d'outils s'arrête à elle.
+    /// </summary>
+    public static PixelRect DockArea(BoardBackground background, PixelRect bounds, PixelRect workArea)
+    {
+        return background == BoardBackground.Transparent ? workArea : bounds;
+    }
+
+    /// <summary>Déplacement qui cache un élément derrière le bord auquel il est attaché.</summary>
+    public static (double X, double Y) HiddenOffset(ToolbarDock dock, double width, double height)
+    {
+        return dock switch
+        {
+            ToolbarDock.Top => (0, -height),
+            ToolbarDock.Bottom => (0, height),
+            ToolbarDock.Left => (-width, 0),
+            ToolbarDock.Right => (width, 0),
+            _ => (0, 0),
+        };
+    }
+
+    /// <summary>Rotation de la vague, dessinée la base en bas, pour que sa base touche le bord.</summary>
+    public static double WaveAngle(ToolbarDock dock)
+    {
+        return dock switch
+        {
+            ToolbarDock.Top => 180,
+            ToolbarDock.Left => 90,
+            ToolbarDock.Right => 270,
+            _ => 0,
+        };
+    }
+
     /// <summary>Une valeur inconnue dans les réglages revient à une barre libre.</summary>
     public static ToolbarDock Sanitize(ToolbarDock dock) => Enum.IsDefined(dock) ? dock : ToolbarDock.None;
 }

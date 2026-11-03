@@ -110,6 +110,39 @@ public class ToolbarDockingTests
         Assert.Equal(TimeSpan.FromSeconds(expected), ToolbarDocking.CollapseDelay(seconds));
     }
 
+    [Theory]
+    [InlineData(ToolbarDock.Top, 0, -50)]
+    [InlineData(ToolbarDock.Bottom, 0, 50)]
+    [InlineData(ToolbarDock.Left, -300, 0)]
+    [InlineData(ToolbarDock.Right, 300, 0)]
+    [InlineData(ToolbarDock.None, 0, 0)]
+    public void Hides_behind_the_attached_edge(ToolbarDock dock, double expectedX, double expectedY)
+    {
+        Assert.Equal((expectedX, expectedY), ToolbarDocking.HiddenOffset(dock, 300, 50));
+    }
+
+    [Theory]
+    [InlineData(ToolbarDock.Bottom, 0)]
+    [InlineData(ToolbarDock.Top, 180)]
+    [InlineData(ToolbarDock.Left, 90)]
+    [InlineData(ToolbarDock.Right, 270)]
+    public void The_wave_base_faces_the_attached_edge(ToolbarDock dock, double expected)
+    {
+        Assert.Equal(expected, ToolbarDocking.WaveAngle(dock));
+    }
+
+    [Theory]
+    [InlineData(BoardBackground.Transparent, 1040)]
+    [InlineData(BoardBackground.Whiteboard, 1080)]
+    [InlineData(BoardBackground.Blackboard, 1080)]
+    public void A_board_extends_the_dock_area_over_the_taskbar(BoardBackground background, int expectedBottom)
+    {
+        var area = ToolbarDocking.DockArea(background, new PixelRect(0, 0, 1920, 1080), WorkArea);
+
+        Assert.Equal(expectedBottom, area.Bottom);
+        Assert.Equal(new PixelPoint(760, expectedBottom - 100), ToolbarDocking.Place(ToolbarDock.Bottom, 400, 100, area));
+    }
+
     [Fact]
     public void An_unknown_saved_dock_becomes_a_free_bar()
     {

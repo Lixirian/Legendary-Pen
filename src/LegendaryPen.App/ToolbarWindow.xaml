@@ -79,6 +79,18 @@
 
         <Style TargetType="Button" BasedOn="{StaticResource ToolButtonBase}" />
 
+        <Style x:Key="WaveButtonStyle" TargetType="Button">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <ContentPresenter />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style TargetType="ToggleButton" BasedOn="{StaticResource ToolButtonBase}">
             <Style.Triggers>
                 <Trigger Property="IsChecked" Value="True">
@@ -88,28 +100,38 @@
         </Style>
     </Window.Resources>
 
-    <Border Background="#F0202124" CornerRadius="12" Padding="4">
+    <Grid ClipToBounds="True">
+    <Button x:Name="ExpandButton"
+            Style="{StaticResource WaveButtonStyle}"
+            Visibility="Collapsed"
+            ToolTip="Déplier la barre"
+            AutomationProperties.Name="Déplier la barre"
+            Click="OnExpandClicked">
         <Grid>
-        <Button x:Name="ExpandButton"
-                Visibility="Collapsed"
-                ToolTip="Déplier la barre"
-                AutomationProperties.Name="Déplier la barre"
-                Click="OnExpandClicked">
-            <Grid>
+            <Path x:Name="WavePath"
+                  Data="M0,26 C34,26 36,2 64,2 C92,2 94,26 128,26 Z"
+                  Fill="#F0202124"
+                  Stroke="#55FFFFFF"
+                  StrokeThickness="1" />
+            <Grid x:Name="WaveContent"
+                  HorizontalAlignment="Center"
+                  VerticalAlignment="Center">
                 <Image x:Name="ExpandIcon"
-                       Width="28"
-                       Height="28"
+                       Width="16"
+                       Height="16"
                        RenderOptions.BitmapScalingMode="HighQuality" />
                 <Ellipse x:Name="ExpandBadge"
-                         Width="10"
-                         Height="10"
-                         Margin="0,-3,-5,0"
+                         Width="8"
+                         Height="8"
+                         Margin="0,-2,-4,0"
                          HorizontalAlignment="Right"
                          VerticalAlignment="Top"
                          Fill="#FFFF5252"
                          Visibility="Collapsed" />
             </Grid>
-        </Button>
+        </Grid>
+    </Button>
+    <Border x:Name="BarSurface" Background="#F0202124" Padding="4">
         <WrapPanel x:Name="ToolbarPanel">
             <Border x:Name="Grip"
                     Background="Transparent"
@@ -312,6 +334,6 @@
                     AutomationProperties.Name="Quitter"
                     Click="OnQuitClicked" />
         </WrapPanel>
-        </Grid>
     </Border>
+    </Grid>
 </Window>

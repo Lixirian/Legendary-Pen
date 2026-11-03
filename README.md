@@ -17,7 +17,7 @@ L'installeur n'étant pas signé par un certificat commercial, Windows SmartScre
 | Annuler / rétablir | `Ctrl+Z` / `Ctrl+Y` |
 | Modifier une couleur rapide | Clic droit sur la couleur |
 | Mettre la barre à la verticale ou à l'horizontale | Bouton de rotation de la barre |
-| Attacher la barre à un bord | La déposer près du bord ; sans clic, elle se replie en une icône, qu'un clic redéplie |
+| Attacher la barre à un bord | La déposer près du bord ; sans clic, elle redescend derrière le bord et laisse une petite vague, qu'un clic fait remonter |
 | Stylo / surligneur / gomme | `P` / `H` / `E` |
 | Ligne / flèche / rectangle / ellipse | `L` / `A` / `R` / `O` (`Maj` : 45°, carré, cercle) |
 | Texte | `T` (`Échap` ou clic ailleurs pour valider) |
