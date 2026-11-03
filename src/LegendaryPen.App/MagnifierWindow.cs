@@ -13,7 +13,7 @@ internal sealed class MagnifierWindow : IDisposable
     private const double Zoom = 2;
 
     // Un rafraîchissement bloque le fil de l'interface 3 à 30 ms (mesuré) : à chaque image de l'écran, il priverait
-    // le stylo de temps. Environ 30 images/s est la cadence validée en partage d'écran.
+    // le stylo de temps. Ce délai court depuis la fin du précédent, et s'allonge si celui-ci a coûté cher.
     private static readonly TimeSpan MinimumUpdateInterval = TimeSpan.FromMilliseconds(30);
 
     private static bool _creationAttempted;
@@ -21,7 +21,8 @@ internal sealed class MagnifierWindow : IDisposable
     private readonly IntPtr _host;
     private readonly IntPtr _control;
 
-    private long _lastUpdate;
+    private long _lastRefreshEnd;
+    private TimeSpan _lastRefreshCost;
     private bool _disposed;
 
     private MagnifierWindow(IntPtr host, IntPtr control)
@@ -88,17 +89,20 @@ internal sealed class MagnifierWindow : IDisposable
     /// </summary>
     public void Update(PixelPoint pointer, PixelRect monitor, IntPtr below)
     {
-        if (_lastUpdate != 0 && Stopwatch.GetElapsedTime(_lastUpdate) < MinimumUpdateInterval)
+        if (_lastRefreshEnd != 0
+            && Stopwatch.GetElapsedTime(_lastRefreshEnd) < PresentationGeometry.MagnifierGap(MinimumUpdateInterval, _lastRefreshCost))
         {
             return;
         }
 
-        _lastUpdate = Stopwatch.GetTimestamp();
-
+        var start = Stopwatch.GetTimestamp();
         var box = PresentationGeometry.MagnifierWindow(pointer, Diameter, monitor);
 
         Win32.PlaceBelow(_host, new PixelPoint(box.Left, box.Top), below);
         Win32.RefreshMagnifier(_control, PresentationGeometry.MagnifierSource(pointer, Diameter, Zoom, monitor));
+
+        _lastRefreshEnd = Stopwatch.GetTimestamp();
+        _lastRefreshCost = Stopwatch.GetElapsedTime(start, _lastRefreshEnd);
     }
 
     public void Show() => Win32.ShowWithoutActivating(_host);
@@ -108,7 +112,7 @@ internal sealed class MagnifierWindow : IDisposable
         Win32.HideWindow(_host);
 
         // Au retour, la première mise à jour doit passer : la loupe ne réapparaît pas à son ancienne place.
-        _lastUpdate = 0;
+        _lastRefreshEnd = 0;
     }
 
     public void Dispose()
