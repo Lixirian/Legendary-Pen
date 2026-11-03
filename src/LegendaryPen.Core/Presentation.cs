@@ -13,6 +13,9 @@ public sealed class PresentationState
 
     public event Action? Changed;
 
+    /// <summary>Les fenêtres et le suivi du pointeur ne tournent que si un effet est actif et que rien ne les suspend.</summary>
+    public static bool ShouldRun(bool anyActive, bool suspended) => anyActive && !suspended;
+
     public void ToggleSpotlight()
     {
         SpotlightOn = !SpotlightOn;

@@ -8,6 +8,16 @@ public class PresentationTests
     private static readonly PixelRect Screen = new(0, 0, 1920, 1080);
     private static readonly PixelRect NegativeScreen = new(-1920, 0, 0, 1080);
 
+    [Theory]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, false)]
+    [InlineData(false, true, false)]
+    public void Presentation_runs_only_when_active_and_not_suspended(bool anyActive, bool suspended, bool expected)
+    {
+        Assert.Equal(expected, PresentationState.ShouldRun(anyActive, suspended));
+    }
+
     [Fact]
     public void Nothing_is_active_at_first()
     {

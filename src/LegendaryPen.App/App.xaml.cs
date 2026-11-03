@@ -22,6 +22,8 @@ public partial class App : Application
     private AppState? _state;
     private PenState? _pen;
     private OverlayManager? _overlays;
+    private readonly PresentationState _presentation = new();
+    private PresentationManager? _presenter;
     private ToolbarWindow? _toolbar;
     private UpdateService? _updates;
     private LiveOptions? _options;
@@ -70,6 +72,8 @@ public partial class App : Application
         };
         _annotationSaveTimer.Tick += (_, _) => SaveAnnotations();
         _overlays.UpdateMonitors(monitors);
+        _presenter = new PresentationManager(_presentation);
+        _presenter.UpdateMonitors(monitors);
 
         PixelPoint? savedPosition = _settings is { ToolbarX: { } x, ToolbarY: { } y } ? new PixelPoint(x, y) : null;
         _updates = UpdateService.IsEnabled ? new UpdateService() : null;
@@ -102,7 +106,9 @@ public partial class App : Application
             RestartSaveTimer();
         };
         _toolbar.Show();
-        _overlays.KeepBelowToolbar(new System.Windows.Interop.WindowInteropHelper(_toolbar).Handle);
+        var toolbarHandle = new System.Windows.Interop.WindowInteropHelper(_toolbar).Handle;
+        _overlays.KeepBelowToolbar(toolbarHandle);
+        _presenter.KeepBelowToolbar(toolbarHandle);
 
         _tray = new TrayIcon(_toolbar.ToggleBarVisibility, RequestCapture, RequestSignPdf, RequestSettings, Shutdown);
 
@@ -140,6 +146,7 @@ public partial class App : Application
         _displayChangeTimer.Stop();
         _updateTimer.Stop();
         _tray?.Dispose();
+        _presenter?.Dispose();
 
         if (_saveTimer.IsEnabled)
         {
@@ -332,6 +339,7 @@ public partial class App : Application
         if (monitors.Count > 0)
         {
             _overlays!.UpdateMonitors(monitors);
+            _presenter!.UpdateMonitors(monitors);
             _toolbar!.UpdateMonitors(monitors);
         }
     }
