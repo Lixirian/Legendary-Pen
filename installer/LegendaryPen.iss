@@ -56,6 +56,9 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: 
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{localappdata}\Legendary Pen"
+; Contenus privés : ils ne doivent pas rester sur le PC. Les réglages sont gardés pour une réinstallation.
+Type: filesandordirs; Name: "{userappdata}\Legendary Pen\annotations"
+Type: files; Name: "{userappdata}\Legendary Pen\signature.json"
 
 [Icons]
 Name: "{autoprograms}\Legendary Pen"; Filename: "{app}\LegendaryPen.exe"
