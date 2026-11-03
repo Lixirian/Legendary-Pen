@@ -47,6 +47,7 @@ internal sealed class PresentationManager : IDisposable
         _connected.Clear();
         _connected.UnionWith(connected.Keys);
         _monitors = monitors;
+        _magnifier?.SetMonitors(monitors);
         Apply();
     }
 
@@ -54,6 +55,7 @@ internal sealed class PresentationManager : IDisposable
     public void KeepBelowToolbar(IntPtr toolbar)
     {
         _toolbarHandle = toolbar;
+        _magnifier?.KeepBelow(toolbar);
 
         foreach (var window in _windows.Values)
         {
@@ -103,8 +105,8 @@ internal sealed class PresentationManager : IDisposable
 
         var run = PresentationState.ShouldRun(_state.AnyActive, _suspended);
 
-        // Magnification.dll ne se charge qu'ici. Sans elle, la loupe s'éteint : ce basculement relance Apply.
-        if (run && _state.MagnifierOn && (_magnifier ??= MagnifierWindow.TryCreate()) is null)
+        // Magnification.dll ne se charge qu'à partir d'ici. Sans elle, la loupe s'éteint : ce basculement relance Apply.
+        if (run && _state.MagnifierOn && (_magnifier ??= MagnifierWindow.TryStart(_monitors, _toolbarHandle, OnMagnifierUnavailable)) is null)
         {
             _state.ToggleMagnifier();
             return;
@@ -134,7 +136,6 @@ internal sealed class PresentationManager : IDisposable
             RenderFrame();
         }
 
-        // Après RenderFrame : la loupe apparaît déjà à sa place, au-dessus des fenêtres qui viennent de remonter.
         if (run && _state.MagnifierOn)
         {
             _magnifier!.Show();
@@ -177,22 +178,17 @@ internal sealed class PresentationManager : IDisposable
                 window.Render(pointer, _state.SpotlightOn);
             }
         }
-
-        if (_state.MagnifierOn && _magnifier is not null)
-        {
-            RenderMagnifier(_magnifier, pointer);
-        }
     }
 
-    private void RenderMagnifier(MagnifierWindow magnifier, PixelPoint pointer)
+    // Le fil de la loupe a échoué : aucune nouvelle tentative, TryStart renverra null.
+    private void OnMagnifierUnavailable()
     {
-        foreach (var monitor in _monitors)
+        _magnifier?.Dispose();
+        _magnifier = null;
+
+        if (!_disposed && _state.MagnifierOn)
         {
-            if (monitor.Bounds.Contains(pointer.X, pointer.Y))
-            {
-                magnifier.Update(pointer, monitor.Bounds, _toolbarHandle);
-                return;
-            }
+            _state.ToggleMagnifier();
         }
     }
 }

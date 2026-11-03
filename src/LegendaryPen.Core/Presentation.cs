@@ -57,12 +57,6 @@ public static class PresentationGeometry
         return CenteredInside(pointer, (int)Math.Round(diameter / zoom), monitor);
     }
 
-    /// <summary>Délai à laisser après un rafraîchissement de la loupe : le coût mesuré reste au plus un tiers du temps.</summary>
-    public static TimeSpan MagnifierGap(TimeSpan minimum, TimeSpan lastCost)
-    {
-        return TimeSpan.FromTicks(Math.Max(minimum.Ticks, lastCost.Ticks * 2));
-    }
-
     /// <summary>L'anneau grandit et s'efface de façon linéaire, puis reste invisible.</summary>
     public static ClickRipple RippleAt(double elapsedMilliseconds)
     {

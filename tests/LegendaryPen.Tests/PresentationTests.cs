@@ -119,20 +119,4 @@ public class PresentationTests
     {
         Assert.Equal(0, PresentationGeometry.RippleAt(900).Opacity);
     }
-
-    [Fact]
-    public void The_magnifier_gap_is_the_minimum_when_cheap()
-    {
-        var gap = PresentationGeometry.MagnifierGap(TimeSpan.FromMilliseconds(30), TimeSpan.FromMilliseconds(5));
-
-        Assert.Equal(TimeSpan.FromMilliseconds(30), gap);
-    }
-
-    [Fact]
-    public void The_magnifier_gap_grows_with_cost()
-    {
-        var gap = PresentationGeometry.MagnifierGap(TimeSpan.FromMilliseconds(30), TimeSpan.FromMilliseconds(30));
-
-        Assert.Equal(TimeSpan.FromMilliseconds(60), gap);
-    }
 }

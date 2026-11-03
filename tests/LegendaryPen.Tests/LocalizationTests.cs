@@ -19,7 +19,8 @@ public sealed partial class LocalizationTests : IDisposable
         "Cet outil n'est pas une forme.",
         "La taille de l'image ne correspond pas aux dimensions.",
         "La barre n'est attachée à aucun bord.",
-        "Loupe indisponible : MagInitialize a échoué.",
+        "La loupe n'a pas confirmé sa disparition.",
+        "La loupe ne s'est pas arrêtée à temps.",
         "Loupe indisponible : la création de la fenêtre ou du contrôle a échoué.",
         "Loupe : la liste de filtrage a été refusée.",
     ];

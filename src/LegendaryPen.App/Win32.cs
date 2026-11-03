@@ -51,6 +51,9 @@ internal static partial class Win32
     private const uint LwaAlpha = 0x00000002;
     private const int SwHide = 0;
     private const int SwShowNoActivate = 4;
+    private const uint PmRemove = 0x0001;
+    private const uint QsAllInput = 0x04FF;
+    private const uint WaitObject0 = 0;
     private const uint MagnifierFilterExclude = 0;
     private const string MagnifierClass = "Magnifier";
     private const string MagnifierHostClass = "LegendaryPenMagnifierHost";
@@ -281,6 +284,22 @@ internal static partial class Win32
 
     public static void Destroy(IntPtr window) => DestroyWindow(window);
 
+    /// <summary>Traite les messages en attente du fil appelant.</summary>
+    public static void PumpMessages()
+    {
+        while (PeekMessageW(out var message, IntPtr.Zero, 0, 0, PmRemove))
+        {
+            TranslateMessage(message);
+            DispatchMessageW(message);
+        }
+    }
+
+    /// <summary>Attend un signal, un message ou la fin du délai. Renvoie vrai seulement si un message est arrivé.</summary>
+    public static bool WaitForMessageOrSignal(IntPtr signal, uint milliseconds)
+    {
+        return MsgWaitForMultipleObjects(1, [signal], false, milliseconds, QsAllInput) == WaitObject0 + 1;
+    }
+
     public static IReadOnlyList<MonitorArea> GetMonitors()
     {
         var monitors = new List<MonitorArea>();
@@ -386,24 +405,43 @@ internal static partial class Win32
     private static partial bool UnregisterHotKey(IntPtr window, int id);
 
     [LibraryImport("Magnification.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool MagInitialize();
 
     [LibraryImport("Magnification.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool MagUninitialize();
 
     [LibraryImport("Magnification.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool MagSetWindowSource(IntPtr control, NativeRect source);
 
     [LibraryImport("Magnification.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool MagSetWindowTransform(IntPtr control, float[] matrix);
 
     [LibraryImport("Magnification.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool MagSetWindowFilterList(IntPtr control, uint mode, int count, IntPtr[] windows);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool PeekMessageW(out NativeMessage message, IntPtr window, uint filterMin, uint filterMax, uint remove);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool TranslateMessage(in NativeMessage message);
+
+    [LibraryImport("user32.dll")]
+    private static partial IntPtr DispatchMessageW(in NativeMessage message);
+
+    [LibraryImport("user32.dll")]
+    private static partial uint MsgWaitForMultipleObjects(uint count, IntPtr[] handles, [MarshalAs(UnmanagedType.Bool)] bool waitAll, uint milliseconds, uint wakeMask);
 
     [LibraryImport("kernel32.dll", StringMarshalling = StringMarshalling.Utf16)]
     private static partial IntPtr GetModuleHandleW(string? moduleName);
@@ -448,6 +486,17 @@ internal static partial class Win32
     private delegate bool MonitorEnumProc(IntPtr monitor, IntPtr deviceContext, IntPtr clip, IntPtr data);
 
     private delegate IntPtr WindowProcedure(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeMessage
+    {
+        public IntPtr Window;
+        public uint Message;
+        public IntPtr WParam;
+        public IntPtr LParam;
+        public uint Time;
+        public NativePoint Point;
+    }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct WindowClass

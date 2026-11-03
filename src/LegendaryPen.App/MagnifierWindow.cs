@@ -1,10 +1,13 @@
 using System.Diagnostics;
+using System.Windows.Threading;
 using LegendaryPen.Core;
 
 namespace LegendaryPen.App;
 
 /// <summary>
 /// Loupe ronde fondée sur le contrôle de Magnification.dll, visible en partage d'écran et sans effet miroir (PR-3).
+/// Tout ce qui touche à Magnification.dll vit sur un fil dédié : un rafraîchissement peut coûter 30 ms, que le fil de
+/// l'interface doit garder pour le stylo. Les méthodes publiques s'appellent depuis le fil de l'interface.
 /// Toutes les positions sont en pixels physiques.
 /// </summary>
 internal sealed class MagnifierWindow : IDisposable
@@ -12,107 +15,76 @@ internal sealed class MagnifierWindow : IDisposable
     private const int Diameter = 320;
     private const double Zoom = 2;
 
-    // Un rafraîchissement bloque le fil de l'interface 3 à 30 ms (mesuré) : à chaque image de l'écran, il priverait
-    // le stylo de temps. Ce délai court depuis la fin du précédent, et s'allonge si celui-ci a coûté cher.
-    private static readonly TimeSpan MinimumUpdateInterval = TimeSpan.FromMilliseconds(30);
+    private static readonly TimeSpan MinimumUpdateInterval = TimeSpan.FromMilliseconds(33);
+    private static readonly TimeSpan HideTimeout = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(1);
 
-    private static bool _creationAttempted;
+    private static bool _startAttempted;
 
-    private readonly IntPtr _host;
-    private readonly IntPtr _control;
+    private readonly Dispatcher _dispatcher;
+    private readonly Action _onUnavailable;
+    private readonly Func<PixelPoint> _readPointer;
+    private readonly AutoResetEvent _wake = new(false);
+    private readonly ManualResetEventSlim _hidden = new(true);
+    private readonly Thread _thread;
 
-    private long _lastRefreshEnd;
-    private TimeSpan _lastRefreshCost;
+    // Remplacé en bloc par le fil de l'interface, seulement lu par le fil de la loupe.
+    private volatile Request _request;
+    private volatile bool _stopping;
+    private volatile bool _finished;
     private bool _disposed;
 
-    private MagnifierWindow(IntPtr host, IntPtr control)
+    private MagnifierWindow(IReadOnlyList<MonitorArea> monitors, IntPtr below, Action onUnavailable, Func<PixelPoint> readPointer)
     {
-        _host = host;
-        _control = control;
+        _request = new Request(monitors.ToArray(), below, false);
+        _dispatcher = Dispatcher.CurrentDispatcher;
+        _onUnavailable = onUnavailable;
+        _readPointer = readPointer;
+        _thread = new Thread(Run) { IsBackground = true, Name = "Legendary Pen - Loupe" };
+        _thread.SetApartmentState(ApartmentState.STA);
     }
 
     /// <summary>
-    /// Une seule tentative par processus. Renvoie null en cas d'échec ou si elle a déjà eu lieu :
-    /// la loupe reste alors indisponible pour la session, sans message ni plantage.
+    /// Démarre le fil, une seule fois par processus. Renvoie null si c'est déjà fait. Un échec sur le fil arrive ensuite
+    /// par <paramref name="onUnavailable"/>, sur le fil de l'interface, sans message ni plantage.
     /// </summary>
-    public static MagnifierWindow? TryCreate()
+    public static MagnifierWindow? TryStart(IReadOnlyList<MonitorArea> monitors, IntPtr below, Action onUnavailable, Func<PixelPoint>? readPointer = null)
     {
-        if (_creationAttempted)
+        if (_startAttempted)
         {
             return null;
         }
 
-        _creationAttempted = true;
+        _startAttempted = true;
 
-        try
-        {
-            if (!Win32.InitializeMagnification())
-            {
-                Debug.WriteLine("Loupe indisponible : MagInitialize a échoué.");
-                return null;
-            }
-        }
-        catch (Exception exception) when (exception is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException)
-        {
-            Debug.WriteLine($"Loupe indisponible : {exception.Message}");
-            return null;
-        }
-
-        var host = Win32.CreateMagnifierHost(Diameter);
-        var control = host != IntPtr.Zero ? Win32.CreateMagnifierControl(host, Diameter) : IntPtr.Zero;
-
-        if (control == IntPtr.Zero || !Win32.SetMagnifierZoom(control, (float)Zoom))
-        {
-            Debug.WriteLine("Loupe indisponible : la création de la fenêtre ou du contrôle a échoué.");
-
-            if (host != IntPtr.Zero)
-            {
-                Win32.Destroy(host);
-            }
-
-            Win32.UninitializeMagnification();
-            return null;
-        }
-
-        // L'essai a montré l'absence de miroir même sans ce filtre : son échec n'empêche pas la loupe.
-        if (!Win32.ExcludeFromMagnifier(control, host))
-        {
-            Debug.WriteLine("Loupe : la liste de filtrage a été refusée.");
-        }
-
-        return new MagnifierWindow(host, control);
+        var magnifier = new MagnifierWindow(monitors, below, onUnavailable, readPointer ?? Win32.GetPointer);
+        magnifier._thread.Start();
+        return magnifier;
     }
 
-    /// <summary>
-    /// Suit le pointeur et rafraîchit le contenu, même immobile : l'écran change dessous. La place dans l'empilement
-    /// est réaffirmée à chaque fois : une fenêtre remontée sous <paramref name="below"/> ne doit pas recouvrir la loupe.
-    /// </summary>
-    public void Update(PixelPoint pointer, PixelRect monitor, IntPtr below)
+    public void SetMonitors(IReadOnlyList<MonitorArea> monitors) => Publish(_request with { Monitors = monitors.ToArray() });
+
+    public void KeepBelow(IntPtr window) => Publish(_request with { Below = window });
+
+    /// <summary>La loupe apparaît au cycle suivant, déjà à sa place.</summary>
+    public void Show() => Publish(_request with { Visible = true });
+
+    /// <summary>Ne rend la main qu'une fois la loupe réellement cachée, ou après le délai maximal (PR-8).</summary>
+    public void Hide()
     {
-        if (_lastRefreshEnd != 0
-            && Stopwatch.GetElapsedTime(_lastRefreshEnd) < PresentationGeometry.MagnifierGap(MinimumUpdateInterval, _lastRefreshCost))
+        if (_disposed || (!_request.Visible && _hidden.IsSet))
         {
             return;
         }
 
-        var start = Stopwatch.GetTimestamp();
-        var box = PresentationGeometry.MagnifierWindow(pointer, Diameter, monitor);
+        _hidden.Reset();
+        Publish(_request with { Visible = false });
 
-        Win32.PlaceBelow(_host, new PixelPoint(box.Left, box.Top), below);
-        Win32.RefreshMagnifier(_control, PresentationGeometry.MagnifierSource(pointer, Diameter, Zoom, monitor));
-
-        _lastRefreshEnd = Stopwatch.GetTimestamp();
-        _lastRefreshCost = Stopwatch.GetElapsedTime(start, _lastRefreshEnd);
-    }
-
-    public void Show() => Win32.ShowWithoutActivating(_host);
-
-    public void Hide()
-    {
-        Win32.HideWindow(_host);
-
-        // Au retour, la première mise à jour doit passer : la loupe ne réapparaît pas à son ancienne place.
-        _lastRefreshEnd = 0;
+        // Après le Reset : si le fil s'est arrêté avant, plus personne ne le rétablira.
+        if (!_finished && !_hidden.Wait(HideTimeout))
+        {
+            Debug.WriteLine("La loupe n'a pas confirmé sa disparition.");
+        }
     }
 
     public void Dispose()
@@ -123,7 +95,171 @@ internal sealed class MagnifierWindow : IDisposable
         }
 
         _disposed = true;
-        Win32.Destroy(_host);
-        Win32.UninitializeMagnification();
+        _stopping = true;
+        _wake.Set();
+
+        if (_thread.Join(StopTimeout))
+        {
+            _wake.Dispose();
+            _hidden.Dispose();
+        }
+        else
+        {
+            Debug.WriteLine("La loupe ne s'est pas arrêtée à temps.");
+        }
     }
+
+    private void Publish(Request request)
+    {
+        if (!_disposed)
+        {
+            _request = request;
+            _wake.Set();
+        }
+    }
+
+    private void Run()
+    {
+        var initialized = false;
+        var host = IntPtr.Zero;
+        var failed = false;
+
+        try
+        {
+            initialized = Win32.InitializeMagnification();
+            host = initialized ? Win32.CreateMagnifierHost(Diameter) : IntPtr.Zero;
+            var control = host != IntPtr.Zero ? Win32.CreateMagnifierControl(host, Diameter) : IntPtr.Zero;
+
+            if (control != IntPtr.Zero && Win32.SetMagnifierZoom(control, (float)Zoom))
+            {
+                // L'essai a montré l'absence de miroir même sans ce filtre : son échec n'empêche pas la loupe.
+                if (!Win32.ExcludeFromMagnifier(control, host))
+                {
+                    Debug.WriteLine("Loupe : la liste de filtrage a été refusée.");
+                }
+
+                RunCycles(host, control);
+            }
+            else
+            {
+                Debug.WriteLine("Loupe indisponible : la création de la fenêtre ou du contrôle a échoué.");
+                failed = true;
+            }
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine($"Loupe indisponible : {exception.Message}");
+            failed = true;
+        }
+
+        Release(initialized, host);
+
+        _finished = true;
+        _hidden.Set();
+
+        if (failed)
+        {
+            _dispatcher.BeginInvoke(_onUnavailable);
+        }
+    }
+
+    private void RunCycles(IntPtr host, IntPtr control)
+    {
+        var wake = _wake.SafeWaitHandle.DangerousGetHandle();
+        var shown = false;
+
+        while (!_stopping)
+        {
+            var start = Stopwatch.GetTimestamp();
+            var request = _request;
+
+            if (request.Visible)
+            {
+                shown |= Refresh(request, host, control, shown);
+                Win32.PumpMessages();
+                WaitForNextCycle(wake, start);
+            }
+            else
+            {
+                if (shown)
+                {
+                    Win32.HideWindow(host);
+                    shown = false;
+                }
+
+                _hidden.Set();
+                Win32.PumpMessages();
+
+                // Cachée, la loupe ne consomme rien : seul un message ou une nouvelle demande la réveille.
+                while (Win32.WaitForMessageOrSignal(wake, uint.MaxValue))
+                {
+                    Win32.PumpMessages();
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Suit le pointeur et rafraîchit le contenu, même immobile : l'écran change dessous. La place dans l'empilement est
+    /// réaffirmée à chaque cycle : une fenêtre remontée sous la barre d'outils ne doit pas recouvrir la loupe.
+    /// Renvoie vrai si la loupe est désormais affichée.
+    /// </summary>
+    private bool Refresh(Request request, IntPtr host, IntPtr control, bool shown)
+    {
+        var pointer = _readPointer();
+
+        foreach (var monitor in request.Monitors)
+        {
+            if (monitor.Bounds.Contains(pointer.X, pointer.Y))
+            {
+                var box = PresentationGeometry.MagnifierWindow(pointer, Diameter, monitor.Bounds);
+
+                Win32.PlaceBelow(host, new PixelPoint(box.Left, box.Top), request.Below);
+                Win32.RefreshMagnifier(control, PresentationGeometry.MagnifierSource(pointer, Diameter, Zoom, monitor.Bounds));
+
+                if (!shown)
+                {
+                    Win32.ShowWithoutActivating(host);
+                }
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Une nouvelle demande interrompt l'attente : cacher la loupe n'attend pas la fin de l'intervalle.
+    private static void WaitForNextCycle(IntPtr wake, long start)
+    {
+        var remaining = MinimumUpdateInterval - Stopwatch.GetElapsedTime(start);
+
+        while (remaining > TimeSpan.Zero && Win32.WaitForMessageOrSignal(wake, (uint)Math.Ceiling(remaining.TotalMilliseconds)))
+        {
+            Win32.PumpMessages();
+            remaining = MinimumUpdateInterval - Stopwatch.GetElapsedTime(start);
+        }
+    }
+
+    private static void Release(bool initialized, IntPtr host)
+    {
+        try
+        {
+            if (host != IntPtr.Zero)
+            {
+                Win32.Destroy(host);
+            }
+
+            if (initialized)
+            {
+                Win32.UninitializeMagnification();
+            }
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(exception.Message);
+        }
+    }
+
+    private sealed record Request(MonitorArea[] Monitors, IntPtr Below, bool Visible);
 }
