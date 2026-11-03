@@ -26,7 +26,7 @@ internal sealed class AnnotationSurface : Grid
     private readonly LiveOptions _options;
     private readonly Action<bool> _textEditingChanged;
     private readonly Func<double, double, double, Rect?> _findTextUnder;
-    private readonly Canvas _textLayer = new() { IsHitTestVisible = false };
+    private readonly AnnotationLayer _activeLayer = new();
     private readonly Canvas _editorLayer = new();
     private readonly FadeLayer _fadeLayer = new();
     private readonly HashSet<TextBlock> _fadingTexts = [];
@@ -55,19 +55,10 @@ internal sealed class AnnotationSurface : Grid
 
         Background = Brushes.Transparent;
 
-        Ink = new InkCanvas
-        {
-            Background = Brushes.Transparent,
-            EditingMode = InkCanvasEditingMode.None,
-            EditingModeInverted = InkCanvasEditingMode.None,
-            EraserShape = new EllipseStylusShape(ToolCursors.EraserDiameter, ToolCursors.EraserDiameter),
-            UseCustomCursor = true,
-        };
         Ink.StrokeCollected += OnStrokeCollected;
         Ink.StrokeErasing += OnStrokeErasing;
 
-        Children.Add(_textLayer);
-        Children.Add(Ink);
+        Children.Add(_activeLayer);
         Children.Add(_fadeLayer);
         Children.Add(_editorLayer);
 
@@ -80,7 +71,8 @@ internal sealed class AnnotationSurface : Grid
         PreviewMouseWheel += OnPointerWheel;
     }
 
-    public InkCanvas Ink { get; }
+    /// <summary>L'encre du calque actif.</summary>
+    public InkCanvas Ink => _activeLayer.Ink;
 
     /// <summary>Reflète l'outil, la couleur et la taille sur cette surface.</summary>
     public void ApplyTool(double scale)
@@ -110,22 +102,22 @@ internal sealed class AnnotationSurface : Grid
 
         foreach (var text in _fadingTexts)
         {
-            _textLayer.Children.Remove(text);
+            _activeLayer.Texts.Children.Remove(text);
         }
 
         _fadingTexts.Clear();
 
-        var texts = _textLayer.Children.OfType<TextBlock>().ToList();
+        var texts = _activeLayer.Texts.Children.OfType<TextBlock>().ToList();
 
         return Ink.Strokes.Count == 0 && texts.Count == 0
             ? null
-            : new SurfaceSnapshot(Ink, new StrokeCollection(Ink.Strokes), _textLayer, texts);
+            : new SurfaceSnapshot(Ink, new StrokeCollection(Ink.Strokes), _activeLayer.Texts, texts);
     }
 
     /// <summary>Contenu à conserver, sans l'encre évanescente. Renvoie null si la surface est vide.</summary>
     public SavedSurface? ToSaved()
     {
-        var texts = _textLayer.Children.OfType<TextBlock>().Except(_fadingTexts).ToList();
+        var texts = _activeLayer.Texts.Children.OfType<TextBlock>().Except(_fadingTexts).ToList();
 
         if (Ink.Strokes.Count == 0 && texts.Count == 0)
         {
@@ -180,7 +172,7 @@ internal sealed class AnnotationSurface : Grid
 
             Canvas.SetLeft(text, item.Left);
             Canvas.SetTop(text, item.Top);
-            _textLayer.Children.Add(text);
+            _activeLayer.Texts.Children.Add(text);
         }
     }
 
@@ -212,7 +204,7 @@ internal sealed class AnnotationSurface : Grid
         // Le contenu du champ a une marge interne : le texte final reste au même endroit.
         Canvas.SetLeft(text, Canvas.GetLeft(editor) + TextEditorOffset);
         Canvas.SetTop(text, Canvas.GetTop(editor) + TextEditorOffset);
-        _textLayer.Children.Add(text);
+        _activeLayer.Texts.Children.Add(text);
 
         if (_state.FadingEnabled)
         {
@@ -220,7 +212,7 @@ internal sealed class AnnotationSurface : Grid
         }
         else
         {
-            _history.Record(new AddTextAction(_textLayer, text));
+            _history.Record(new AddTextAction(_activeLayer.Texts, text));
         }
     }
 
@@ -513,14 +505,14 @@ internal sealed class AnnotationSurface : Grid
 
     private void EraseTextAt(Point position)
     {
-        foreach (var text in _textLayer.Children.OfType<TextBlock>().Except(_fadingTexts).ToList())
+        foreach (var text in _activeLayer.Texts.Children.OfType<TextBlock>().Except(_fadingTexts).ToList())
         {
             var bounds = new Rect(Canvas.GetLeft(text), Canvas.GetTop(text), text.ActualWidth, text.ActualHeight);
 
             if (bounds.Contains(position))
             {
-                _textLayer.Children.Remove(text);
-                _history.Record(new RemoveTextAction(_textLayer, text));
+                _activeLayer.Texts.Children.Remove(text);
+                _history.Record(new RemoveTextAction(_activeLayer.Texts, text));
             }
         }
     }
@@ -533,7 +525,7 @@ internal sealed class AnnotationSurface : Grid
         animation.Completed += (_, _) =>
         {
             _fadingTexts.Remove(text);
-            _textLayer.Children.Remove(text);
+            _activeLayer.Texts.Children.Remove(text);
         };
         text.BeginAnimation(OpacityProperty, animation);
     }
