@@ -68,7 +68,6 @@ public static class Translations
         ["Page précédente"] = "Previous page",
         ["Page suivante"] = "Next page",
         ["Page {0} / {1}"] = "Page {0} / {1}",
-        ["Calque {0}"] = "Layer {0}",
         ["Enregistrer le PDF signé"] = "Save the signed PDF",
         ["Tracer une signature"] = "Draw a signature",
         ["Poser ma signature"] = "Place my signature",
@@ -213,6 +212,7 @@ public static class Translations
 
         // Calques
         ["Calques"] = "Layers",
+        ["Calque {0}"] = "Layer {0}",
         ["Ajouter"] = "Add",
         ["Supprimer"] = "Delete",
         ["Ajouter un calque"] = "Add a layer",

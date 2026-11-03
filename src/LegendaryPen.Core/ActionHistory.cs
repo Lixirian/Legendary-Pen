@@ -27,6 +27,19 @@ public sealed class ActionHistory
         Changed?.Invoke();
     }
 
+    /// <summary>Oublie tout : les actions enregistrées ne décrivent plus l'état actuel.</summary>
+    public void Clear()
+    {
+        if (!CanUndo && !CanRedo)
+        {
+            return;
+        }
+
+        _undo.Clear();
+        _redo.Clear();
+        Changed?.Invoke();
+    }
+
     public void Undo()
     {
         if (_undo.TryPop(out var action))

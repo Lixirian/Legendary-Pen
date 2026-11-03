@@ -143,8 +143,8 @@ internal sealed class AnnotationSurface : Grid
 
     /// <summary>
     /// Contenu à conserver, sans l'encre évanescente : tous les calques de la pile, masqués ou vides compris, pour que la
-    /// pile revienne telle quelle. Un calque retiré n'en fait pas partie. Renvoie null si la surface est vide et que la
-    /// pile est celle d'origine.
+    /// pile revienne telle quelle. Un calque retiré n'en fait pas partie. La pile d'origine s'écrit à l'ancien format, et
+    /// renvoie null si la surface est vide.
     /// </summary>
     public SavedSurface? ToSaved()
     {
@@ -168,11 +168,10 @@ internal sealed class AnnotationSurface : Grid
         }
 
         var state = _stack.Capture();
-        var isOriginalStack = state.Layers.Count == 1 && state.Layers[0].Number == 1 && state.NextNumber == 2;
 
-        if (!hasContent && isOriginalStack)
+        if (LayerRestoration.UsesLegacyFormat(state))
         {
-            return null;
+            return hasContent ? new SavedSurface(layers[0].Strokes, layers[0].Texts) : null;
         }
 
         return new SavedSurface([], [], layers, state.ActiveId, state.NextNumber);
@@ -192,11 +191,11 @@ internal sealed class AnnotationSurface : Grid
     }
 
     /// <summary>
-    /// Remet un contenu enregistré. Un fichier sans calques (versions 0.6 à 0.8) va dans le calque actif, la pile
-    /// restant telle quelle. Sinon la pile est rétablie par le premier fichier relu pour ce fond, puis les fichiers des
-    /// autres écrans rattachent leur contenu par identifiant de calque. Des traits illisibles sont ignorés sans gêner le reste.
+    /// Remet un contenu enregistré, une fois la pile préparée par <see cref="LayerRestorationLedger.Place"/> dont
+    /// <paramref name="targets"/> est le résultat. Un fichier sans calques va dans le calque actif, les autres vont
+    /// chacun dans le calque désigné. Des traits illisibles sont ignorés sans gêner le reste.
     /// </summary>
-    public void Restore(SavedSurface saved, bool stackAlreadyRestored)
+    public void Restore(SavedSurface saved, IReadOnlyDictionary<Guid, Guid> targets)
     {
         if (saved.Layers is not { } layers)
         {
@@ -205,17 +204,16 @@ internal sealed class AnnotationSurface : Grid
             return;
         }
 
-        var targets = LayerRestoration.RestoreInto(_stack, saved, stackAlreadyRestored);
-
         foreach (var layer in layers)
         {
             RestoreContent(LayerFor(targets[layer.Id]), layer.Strokes, layer.Texts);
         }
     }
 
-    private void RestoreContent(AnnotationLayer target, byte[] savedStrokes, List<SavedText> savedTexts)
+    // Un champ absent d'un fichier est lu comme nul : un calque sans traits ou sans textes reste un calque valable.
+    private void RestoreContent(AnnotationLayer target, byte[]? savedStrokes, List<SavedText>? savedTexts)
     {
-        if (savedStrokes.Length > 0)
+        if (savedStrokes is { Length: > 0 })
         {
             try
             {
@@ -228,7 +226,7 @@ internal sealed class AnnotationSurface : Grid
             }
         }
 
-        foreach (var item in savedTexts)
+        foreach (var item in savedTexts ?? [])
         {
             var color = InkColor.TryParse(item.Color, out var parsed) ? parsed : _pen.Color;
             var text = new TextBlock

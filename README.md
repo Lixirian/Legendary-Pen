@@ -57,7 +57,9 @@ Chaque fond (transparent, tableau blanc, tableau noir) compte de 1 à 8 calques,
 - la case de chaque ligne affiche ou masque le calque, et les flèches le montent ou le descendent. Le calque actif n'est jamais masqué, et le dernier calque visible ne peut pas l'être non plus ;
 - « Ajouter » crée un calque au-dessus du calque actif, « Supprimer » retire le calque actif.
 
-Supprimer un calque s'annule avec Ctrl+Z, contenu compris. Annuler agit toujours sur le calque concerné, et « Tout effacer » vide tous les calques en une seule action annulable. Aucun raccourci n'est attribué par défaut ; il se choisit dans les réglages. Quand les annotations sont conservées, les calques le sont aussi : ordre, visibilité et calque actif reviennent au redémarrage, et les anciens fichiers d'annotations restent lisibles.
+Ajouter, supprimer ou déplacer un calque s'annule avec Ctrl+Z, contenu compris ; la visibilité et le calque actif n'entrent pas dans l'historique, et une annulation peut les ramener à leur état d'alors. Annuler agit toujours sur le calque concerné, et « Tout effacer » vide tous les calques en une seule action annulable. Avec « tableau sur un seul écran » (réglage « Afficher le tableau uniquement sur l'écran de la barre d'outils »), le panneau gère les calques du tableau. Aucun raccourci n'est attribué par défaut ; il se choisit dans les réglages.
+
+Quand les annotations sont conservées, les calques le sont aussi : ordre, visibilité et calque actif reviennent au redémarrage, et les anciens fichiers d'annotations restent lisibles. Si un écran branché en cours de route apporte ses propres calques, ils s'ajoutent à la pile sans en retirer aucun, et l'historique d'annulation de ce fond repart de zéro. Revenir à une version antérieure à 0.9 après avoir créé des calques peut faire perdre ces annotations.
 
 ## Signer un PDF
 

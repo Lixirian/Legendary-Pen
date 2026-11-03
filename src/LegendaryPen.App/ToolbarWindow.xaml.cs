@@ -681,8 +681,8 @@ public partial class ToolbarWindow : Window
             [HotkeyAction.ToggleToolbar] = ToggleBarVisibility,
             [HotkeyAction.ExitDraw] = _state.EnterMouse,
             [HotkeyAction.PreviousColor] = _pen.RestorePreviousColor,
-            [HotkeyAction.Undo] = () => _histories.Current.Undo(),
-            [HotkeyAction.Redo] = () => _histories.Current.Redo(),
+            [HotkeyAction.Undo] = UndoLast,
+            [HotkeyAction.Redo] = RedoLast,
             [HotkeyAction.ClearAll] = _overlays.ClearAll,
             [HotkeyAction.Pen] = Tool(DrawingTool.Pen),
             [HotkeyAction.Highlighter] = Tool(DrawingTool.Highlighter),
@@ -1040,9 +1040,22 @@ public partial class ToolbarWindow : Window
 
     private void OnUpdateClicked(object sender, RoutedEventArgs e) => OfferUpdate();
 
-    private void OnUndoClicked(object sender, RoutedEventArgs e) => _histories.Current.Undo();
+    // Le texte en cours entre d'abord dans l'historique : défaire ou refaire ne doit pas le valider en plein milieu.
+    private void UndoLast()
+    {
+        _overlays.CommitText();
+        _histories.Current.Undo();
+    }
 
-    private void OnRedoClicked(object sender, RoutedEventArgs e) => _histories.Current.Redo();
+    private void RedoLast()
+    {
+        _overlays.CommitText();
+        _histories.Current.Redo();
+    }
+
+    private void OnUndoClicked(object sender, RoutedEventArgs e) => UndoLast();
+
+    private void OnRedoClicked(object sender, RoutedEventArgs e) => RedoLast();
 
     private void OnClearClicked(object sender, RoutedEventArgs e) => _overlays.ClearAll();
 

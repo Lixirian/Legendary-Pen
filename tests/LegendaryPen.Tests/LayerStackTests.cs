@@ -374,11 +374,8 @@ public sealed class LayerStackTests : IDisposable
         stack.Select(middle.Id);
         var history = new ActionHistory();
 
-        // Même enchaînement que le panneau : capturer, retirer, capturer, enregistrer.
-        var before = stack.Capture();
-        stack.Remove(middle.Id);
+        LayerStackAction.Apply(stack, history, () => stack.Remove(middle.Id));
         var after = stack.Capture();
-        history.Record(new RestoreStateAction(stack, before, after));
 
         Assert.Equal([bottom.Id, top.Id], stack.Layers.Select(layer => layer.Id));
         Assert.Equal(bottom.Id, stack.Active.Id);
@@ -395,10 +392,176 @@ public sealed class LayerStackTests : IDisposable
         Assert.Equal(after.NextNumber, stack.Capture().NextNumber);
     }
 
-    private sealed class RestoreStateAction(LayerStack stack, LayerStackState before, LayerStackState after) : IUndoableAction
+    [Fact]
+    public void Adding_a_layer_undoes_and_redoes_through_the_history()
     {
-        public void Undo() => stack.Restore(before);
+        var stack = new LayerStack();
+        var bottom = stack.Active;
+        var history = new ActionHistory();
+        LayerInfo added = null!;
 
-        public void Redo() => stack.Restore(after);
+        LayerStackAction.Apply(stack, history, () => added = stack.Add());
+        history.Undo();
+
+        Assert.Equal([bottom.Id], stack.Layers.Select(layer => layer.Id));
+        Assert.Equal(bottom.Id, stack.Active.Id);
+
+        history.Redo();
+
+        Assert.Equal([bottom.Id, added.Id], stack.Layers.Select(layer => layer.Id));
+        Assert.Equal(added.Id, stack.Active.Id);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Moving_a_layer_undoes_and_redoes_through_the_history(bool up)
+    {
+        var stack = new LayerStack();
+        stack.Add();
+        var history = new ActionHistory();
+        var original = stack.Layers.Select(layer => layer.Id).ToArray();
+        var moved = up ? original[0] : original[1];
+
+        LayerStackAction.Apply(stack, history, () =>
+        {
+            if (up)
+            {
+                stack.MoveUp(moved);
+            }
+            else
+            {
+                stack.MoveDown(moved);
+            }
+        });
+        var swapped = stack.Layers.Select(layer => layer.Id).ToArray();
+        history.Undo();
+
+        Assert.Equal(original, stack.Layers.Select(layer => layer.Id));
+
+        history.Redo();
+
+        Assert.Equal(swapped, stack.Layers.Select(layer => layer.Id));
+        Assert.Equal(Enumerable.Reverse(original), swapped);
+    }
+
+    [Fact]
+    public void A_change_with_no_effect_is_not_recorded()
+    {
+        var stack = new LayerStack();
+        stack.Add();
+        var history = new ActionHistory();
+
+        // Le calque du dessus ne peut pas monter plus haut.
+        LayerStackAction.Apply(stack, history, () => stack.MoveUp(stack.Layers[^1].Id));
+
+        Assert.False(history.CanUndo);
+    }
+
+    [Fact]
+    public void Redo_after_undoing_past_a_removal_keeps_the_content_of_a_layer_added_since()
+    {
+        var stack = new LayerStack();
+        var history = new ActionHistory();
+        var content = new Dictionary<Guid, List<string>>();
+        var removed = stack.Add();
+        LayerInfo added = null!;
+
+        // La séquence de la revue : retirer, ajouter, dessiner, annuler deux fois, rétablir deux fois.
+        LayerStackAction.Apply(stack, history, () => stack.Remove(removed.Id));
+        LayerStackAction.Apply(stack, history, () => added = stack.Add());
+        Draw(history, content, stack.Active.Id, "trait");
+
+        history.Undo();
+        history.Undo();
+
+        Assert.DoesNotContain(stack.Layers, layer => layer.Id == added.Id);
+        Assert.Empty(content[added.Id]);
+
+        history.Redo();
+        history.Redo();
+
+        Assert.Contains(stack.Layers, layer => layer.Id == added.Id);
+        Assert.Equal(added.Id, stack.Active.Id);
+        Assert.Equal(["trait"], content[added.Id]);
+
+        // Jusqu'au bout de l'historique : le calque retiré revient, lui aussi.
+        history.Undo();
+        history.Undo();
+        history.Undo();
+
+        Assert.Contains(stack.Layers, layer => layer.Id == removed.Id);
+        Assert.Equal(removed.Id, stack.Active.Id);
+    }
+
+    [Fact]
+    public void Undoing_steps_back_through_a_move_before_reaching_the_removal()
+    {
+        var stack = new LayerStack();
+        var bottom = stack.Active;
+        var middle = stack.Add();
+        var top = stack.Add();
+        var history = new ActionHistory();
+
+        LayerStackAction.Apply(stack, history, () => stack.Remove(top.Id));
+        LayerStackAction.Apply(stack, history, () => stack.MoveUp(bottom.Id));
+
+        Assert.Equal([middle.Id, bottom.Id], stack.Layers.Select(layer => layer.Id));
+
+        // Annuler défait d'abord le déplacement, seul : il n'est plus perdu avec la suppression.
+        history.Undo();
+
+        Assert.Equal([bottom.Id, middle.Id], stack.Layers.Select(layer => layer.Id));
+
+        history.Undo();
+
+        Assert.Equal([bottom.Id, middle.Id, top.Id], stack.Layers.Select(layer => layer.Id));
+    }
+
+    [Fact]
+    public void Clearing_a_history_forgets_undo_and_redo()
+    {
+        var history = new ActionHistory();
+        var content = new Dictionary<Guid, List<string>>();
+        var layer = Guid.NewGuid();
+        Draw(history, content, layer, "un");
+        Draw(history, content, layer, "deux");
+        history.Undo();
+        var changes = 0;
+        history.Changed += () => changes++;
+
+        history.Clear();
+
+        Assert.False(history.CanUndo);
+        Assert.False(history.CanRedo);
+        Assert.Equal(1, changes);
+        Assert.Equal(["un"], content[layer]);
+    }
+
+    [Fact]
+    public void Clearing_an_empty_history_raises_nothing()
+    {
+        var history = new ActionHistory();
+        var changes = 0;
+        history.Changed += () => changes++;
+
+        history.Clear();
+
+        Assert.Equal(0, changes);
+    }
+
+    // Un tracé de test : son contenu vit sur un calque, retiré de la pile ou non, comme l'encre d'une surface.
+    private static void Draw(ActionHistory history, Dictionary<Guid, List<string>> content, Guid layer, string stroke)
+    {
+        var action = new DrawAction(content.TryGetValue(layer, out var strokes) ? strokes : content[layer] = [], stroke);
+        action.Redo();
+        history.Record(action);
+    }
+
+    private sealed class DrawAction(List<string> strokes, string stroke) : IUndoableAction
+    {
+        public void Undo() => strokes.Remove(stroke);
+
+        public void Redo() => strokes.Add(stroke);
     }
 }

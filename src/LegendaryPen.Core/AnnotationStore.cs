@@ -10,9 +10,9 @@ public sealed record SavedLayer(Guid Id, int Number, bool IsVisible, byte[] Stro
 
 /// <summary>
 /// Contenu enregistré d'une surface. Les fichiers des versions 0.6 à 0.8 n'ont que <paramref name="Strokes"/> et
-/// <paramref name="Texts"/> (<paramref name="Layers"/> est alors nul). Les nouvelles écritures remplissent
-/// <paramref name="Layers"/>, <paramref name="ActiveLayerId"/> et <paramref name="NextNumber"/>, et laissent les deux
-/// premiers champs vides.
+/// <paramref name="Texts"/> (<paramref name="Layers"/> est alors nul) ; ce format reste écrit tant que la pile est celle
+/// d'origine (<see cref="LayerRestoration.UsesLegacyFormat"/>). Une pile avec des calques remplit <paramref name="Layers"/>,
+/// <paramref name="ActiveLayerId"/> et <paramref name="NextNumber"/>, et laisse les deux premiers champs vides.
 /// </summary>
 public sealed record SavedSurface(
     byte[] Strokes,

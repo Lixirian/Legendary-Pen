@@ -128,21 +128,17 @@ internal sealed class OverlayWindow : Window
     }
 
     /// <summary>
-    /// <paramref name="restoredStacks"/> retient les fonds dont la pile a déjà été rétablie par le fichier d'un autre écran :
-    /// la pile est commune à tous les écrans.
+    /// Relit les fichiers de cet écran. La pile est commune à tous les écrans : <paramref name="restoration"/> décide si le
+    /// fichier peut la rétablir ou s'il doit fusionner avec elle.
     /// </summary>
-    public void RestoreAnnotations(AnnotationStore store, ISet<BoardBackground> restoredStacks)
+    public void RestoreAnnotations(AnnotationStore store, LayerRestorationLedger restoration)
     {
         foreach (var background in Enum.GetValues<BoardBackground>())
         {
             if (store.Load(_monitor.DeviceName, background) is { } saved)
             {
-                GetSurface(background).Restore(saved, restoredStacks.Contains(background));
-
-                if (saved.Layers is not null)
-                {
-                    restoredStacks.Add(background);
-                }
+                var surface = GetSurface(background);
+                surface.Restore(saved, restoration.Place(background, _layerStacks.For(background), _histories.For(background), saved));
             }
         }
     }

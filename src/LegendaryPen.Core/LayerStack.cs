@@ -211,6 +211,31 @@ public sealed class LayerStack
     }
 }
 
+/// <summary>
+/// Un changement de structure de la pile : ajout, suppression ou déplacement. L'état de la pile avant et après suffit à
+/// défaire ou refaire : le contenu d'un calque reste conservé par les surfaces, donc il revient avec lui. La visibilité et
+/// la sélection restent hors de l'historique ; défaire ou refaire peut les ramener à leur état d'alors.
+/// </summary>
+public sealed class LayerStackAction(LayerStack stack, LayerStackState before, LayerStackState after) : IUndoableAction
+{
+    public void Undo() => stack.Restore(before);
+
+    public void Redo() => stack.Restore(after);
+
+    /// <summary>Applique un changement de structure et l'inscrit dans l'historique, sauf s'il n'a rien changé.</summary>
+    public static void Apply(LayerStack stack, ActionHistory history, Action change)
+    {
+        var before = stack.Capture();
+        change();
+        var after = stack.Capture();
+
+        if (!before.Layers.SequenceEqual(after.Layers) || before.ActiveId != after.ActiveId || before.NextNumber != after.NextNumber)
+        {
+            history.Record(new LayerStackAction(stack, before, after));
+        }
+    }
+}
+
 /// <summary>Une pile de calques par fond, sur le modèle de <see cref="SurfaceHistories"/>.</summary>
 public sealed class LayerStacks
 {

@@ -27,7 +27,7 @@ public partial class LayersWindow : Window
     private BoardBackground _background;
     private LayerStack _stack;
 
-    /// <param name="commitText">Valide le texte en cours de saisie, avant une suppression : il doit atterrir sur un calque encore présent.</param>
+    /// <param name="commitText">Valide le texte en cours de saisie, avant un changement de pile : il doit atterrir sur un calque encore présent.</param>
     public LayersWindow(AppState state, LayerStacks stacks, SurfaceHistories histories, Action commitText)
     {
         _state = state;
@@ -189,8 +189,8 @@ public partial class LayersWindow : Window
         AutomationProperties.SetName(name, layer.Name);
         name.Click += (_, _) => _stack.Select(id);
 
-        var up = CreateMoveButton(UpGlyph, Loc.T("Monter le calque"), index < count - 1, () => _stack.MoveUp(id));
-        var down = CreateMoveButton(DownGlyph, Loc.T("Descendre le calque"), index > 0, () => _stack.MoveDown(id));
+        var up = CreateMoveButton(UpGlyph, Loc.T("Monter le calque"), index < count - 1, () => ChangeStack(() => _stack.MoveUp(id)));
+        var down = CreateMoveButton(DownGlyph, Loc.T("Descendre le calque"), index > 0, () => ChangeStack(() => _stack.MoveDown(id)));
 
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -237,25 +237,24 @@ public partial class LayersWindow : Window
     {
         if (_stack.CanAdd)
         {
-            _stack.Add();
+            ChangeStack(() => _stack.Add());
         }
     }
 
-    // Seule la suppression s'annule : sélection, visibilité, ajout et déplacement restent hors de l'historique.
     private void OnRemoveClicked(object sender, RoutedEventArgs e)
     {
-        if (!_stack.CanRemove)
+        if (_stack.CanRemove)
         {
-            return;
+            ChangeStack(() => _stack.Remove(_stack.Active.Id));
         }
+    }
 
+    // Ajout, suppression et déplacement s'annulent dans le même historique que le dessin ; sélection et visibilité en restent dehors.
+    private void ChangeStack(Action change)
+    {
         // Le texte en cours atterrit sur un calque vivant, avant que l'état soit capturé.
         _commitText();
 
-        var before = _stack.Capture();
-        _stack.Remove(_stack.Active.Id);
-        var after = _stack.Capture();
-
-        _histories.For(_background).Record(new RemoveLayerAction(_stack, before, after));
+        LayerStackAction.Apply(_stack, _histories.For(_background), change);
     }
 }

@@ -90,14 +90,3 @@ internal sealed class SurfaceSnapshot(InkCanvas canvas, StrokeCollection strokes
         }
     }
 }
-
-/// <summary>
-/// Retire un calque. L'état de la pile avant et après suffit à défaire ou refaire : le contenu du calque
-/// reste conservé par les surfaces, donc il revient avec lui.
-/// </summary>
-internal sealed class RemoveLayerAction(LayerStack stack, LayerStackState before, LayerStackState after) : IUndoableAction
-{
-    public void Undo() => stack.Restore(before);
-
-    public void Redo() => stack.Restore(after);
-}

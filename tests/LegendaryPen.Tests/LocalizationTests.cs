@@ -31,7 +31,6 @@ public sealed partial class LocalizationTests : IDisposable
         "Click effects unavailable: the mouse hook was refused.",
         "The stack already holds the maximum number of layers.",
         "The last layer cannot be removed.",
-        "This layer is already in the stack.",
         "No visible layer.",
         "Unknown layer.",
         "A stack holds between 1 and 8 layers.",

@@ -12,7 +12,7 @@ public sealed class OverlayManager
     private readonly LayerStacks _layerStacks;
     private readonly LiveOptions _options;
     private readonly AnnotationStore _annotations;
-    private readonly HashSet<BoardBackground> _restoredStacks = [];
+    private readonly LayerRestorationLedger _restoration = new();
 
     private OverlayWindow? _keyboardOverlay;
     private IntPtr _toolbarHandle;
@@ -68,6 +68,8 @@ public sealed class OverlayManager
         {
             _overlays[name] = CreateOverlay(connected[name]);
         }
+
+        _restoration.CompleteFirstPass();
     }
 
     /// <summary>Garantit que les overlays, présents et futurs, restent sous la barre d'outils.</summary>
@@ -129,7 +131,7 @@ public sealed class OverlayManager
 
         if (_options.KeepAnnotations)
         {
-            overlay.RestoreAnnotations(_annotations, _restoredStacks);
+            overlay.RestoreAnnotations(_annotations, _restoration);
         }
 
         overlay.Show();
