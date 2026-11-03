@@ -1,0 +1,94 @@
+<Window x:Class="LegendaryPen.App.ColorPickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Couleur du stylo"
+        Width="340"
+        SizeToContent="Height"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Topmost="True"
+        WindowStartupLocation="CenterOwner">
+    <Grid Margin="16">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="80" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="56" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Border x:Name="Preview"
+                Grid.ColumnSpan="2"
+                CornerRadius="6"
+                BorderBrush="#55000000"
+                BorderThickness="1"
+                AutomationProperties.Name="Aperçu de la couleur" />
+
+        <TextBlock Grid.Row="1" Text="Teinte" Margin="0,14,0,0" VerticalAlignment="Center" />
+        <Slider x:Name="HueSlider"
+                Grid.Row="1"
+                Grid.Column="1"
+                Margin="0,14,0,0"
+                Maximum="360"
+                AutomationProperties.Name="Teinte"
+                ValueChanged="OnSliderChanged" />
+
+        <TextBlock Grid.Row="2" Text="Saturation" Margin="0,10,0,0" VerticalAlignment="Center" />
+        <Slider x:Name="SaturationSlider"
+                Grid.Row="2"
+                Grid.Column="1"
+                Margin="0,10,0,0"
+                Maximum="100"
+                AutomationProperties.Name="Saturation"
+                ValueChanged="OnSliderChanged" />
+
+        <TextBlock Grid.Row="3" Text="Luminosité" Margin="0,10,0,0" VerticalAlignment="Center" />
+        <Slider x:Name="BrightnessSlider"
+                Grid.Row="3"
+                Grid.Column="1"
+                Margin="0,10,0,0"
+                Maximum="100"
+                AutomationProperties.Name="Luminosité"
+                ValueChanged="OnSliderChanged" />
+
+        <TextBlock Grid.Row="4" Text="Code" Margin="0,12,0,0" VerticalAlignment="Center" />
+        <TextBox x:Name="HexBox"
+                 Grid.Row="4"
+                 Grid.Column="1"
+                 Margin="0,12,0,0"
+                 Padding="4"
+                 MaxLength="7"
+                 AutomationProperties.Name="Code hexadécimal"
+                 TextChanged="OnHexChanged" />
+
+        <CheckBox x:Name="ReplaceCheckBox"
+                  Grid.Row="5"
+                  Grid.ColumnSpan="2"
+                  Margin="0,14,0,0"
+                  Content="Remplacer la couleur rapide sélectionnée" />
+
+        <StackPanel Grid.Row="6"
+                    Grid.ColumnSpan="2"
+                    Margin="0,16,0,0"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right">
+            <Button x:Name="OkButton"
+                    Content="Utiliser"
+                    MinWidth="84"
+                    Padding="8,4"
+                    IsDefault="True"
+                    Click="OnOkClicked" />
+            <Button Content="Annuler"
+                    MinWidth="84"
+                    Padding="8,4"
+                    Margin="8,0,0,0"
+                    IsCancel="True" />
+        </StackPanel>
+    </Grid>
+</Window>

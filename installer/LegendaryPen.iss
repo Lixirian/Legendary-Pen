@@ -1,0 +1,49 @@
+; Installeur de Legendary Pen, compilé par build-release.ps1.
+; Installation par utilisateur : aucun droit administrateur n'est demandé.
+
+#ifndef AppVersion
+  #error Définir AppVersion : ISCC /DAppVersion=x.y.z LegendaryPen.iss
+#endif
+
+[Setup]
+AppId={{7C1E4D52-3B6A-4F0E-9A27-5D8C2E61B3F4}
+AppName=Legendary Pen
+AppVersion={#AppVersion}
+AppVerName=Legendary Pen {#AppVersion}
+AppPublisher=Lixirian
+AppPublisherURL=https://github.com/Lixirian/Legendary-Pen
+DefaultDirName={localappdata}\Programs\Legendary Pen
+DisableDirPage=yes
+DisableProgramGroupPage=yes
+DefaultGroupName=Legendary Pen
+PrivilegesRequired=lowest
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+OutputDir=..\dist
+OutputBaseFilename=LegendaryPen-Setup-{#AppVersion}
+Compression=lzma2/max
+SolidCompression=yes
+WizardStyle=modern
+UninstallDisplayIcon={app}\LegendaryPen.exe
+UninstallDisplayName=Legendary Pen
+CloseApplications=force
+RestartApplications=no
+
+[Languages]
+Name: "french"; MessagesFile: "compiler:Languages\French.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+
+[Files]
+Source: "..\dist\publish\LegendaryPen.exe"; DestDir: "{app}"; Flags: ignoreversion
+
+[Icons]
+Name: "{autoprograms}\Legendary Pen"; Filename: "{app}\LegendaryPen.exe"
+Name: "{autodesktop}\Legendary Pen"; Filename: "{app}\LegendaryPen.exe"; Tasks: desktopicon
+
+[Run]
+; Installation manuelle : case à cocher en fin d'assistant.
+Filename: "{app}\LegendaryPen.exe"; Description: "{cm:LaunchProgram,Legendary Pen}"; Flags: nowait postinstall skipifsilent
+; Mise à jour depuis l'application : relance automatique.
+Filename: "{app}\LegendaryPen.exe"; Flags: nowait; Check: WizardSilent

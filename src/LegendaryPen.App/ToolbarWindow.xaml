@@ -1,0 +1,211 @@
+<Window x:Class="LegendaryPen.App.ToolbarWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Legendary Pen"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowInTaskbar="False"
+        ShowActivated="False"
+        Topmost="True"
+        Opacity="0"
+        SizeToContent="WidthAndHeight">
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="HoverBrush" Color="#33FFFFFF" />
+        <SolidColorBrush x:Key="SelectedBrush" Color="#FFE53935" />
+
+        <Style x:Key="ToolButtonBase" TargetType="ButtonBase">
+            <Setter Property="Width" Value="40" />
+            <Setter Property="Height" Value="40" />
+            <Setter Property="Margin" Value="2" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+            <Setter Property="FontSize" Value="17" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ButtonBase">
+                        <Border x:Name="Surface" Background="{TemplateBinding Background}" CornerRadius="8">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Surface" Property="Background" Value="{StaticResource HoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.35" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SwatchStyle" TargetType="ToggleButton" BasedOn="{StaticResource ToolButtonBase}">
+            <Setter Property="Width" Value="30" />
+            <Setter Property="Margin" Value="1,2" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Grid Background="Transparent">
+                            <Ellipse x:Name="Ring"
+                                     Width="28"
+                                     Height="28"
+                                     StrokeThickness="2"
+                                     Stroke="Transparent" />
+                            <Ellipse Width="20"
+                                     Height="20"
+                                     Fill="{TemplateBinding Background}"
+                                     Stroke="#66FFFFFF"
+                                     StrokeThickness="1" />
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Ring" Property="Stroke" Value="#66FFFFFF" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Ring" Property="Stroke" Value="White" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="Button" BasedOn="{StaticResource ToolButtonBase}" />
+
+        <Style TargetType="ToggleButton" BasedOn="{StaticResource ToolButtonBase}">
+            <Style.Triggers>
+                <Trigger Property="IsChecked" Value="True">
+                    <Setter Property="Background" Value="{StaticResource SelectedBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Border Background="#F0202124" CornerRadius="12" Padding="4">
+        <StackPanel Orientation="Horizontal">
+            <Border Width="20"
+                    Background="Transparent"
+                    Cursor="SizeAll"
+                    ToolTip="Déplacer la barre"
+                    MouseLeftButtonDown="OnGripPressed">
+                <TextBlock Text="&#xE784;"
+                           FontFamily="Segoe MDL2 Assets"
+                           Foreground="#99FFFFFF"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center" />
+            </Border>
+
+            <ToggleButton x:Name="MouseButton"
+                          Content="&#xE962;"
+                          ToolTip="Mode Souris (Échap)"
+                          AutomationProperties.Name="Mode Souris"
+                          Checked="OnMouseToggled"
+                          Unchecked="OnMouseToggled" />
+            <ToggleButton x:Name="PenButton"
+                          Content="&#xE76D;"
+                          ToolTip="Stylo (Ctrl+Maj+Espace)"
+                          AutomationProperties.Name="Stylo"
+                          Checked="OnPenToggled"
+                          Unchecked="OnPenToggled" />
+
+            <Separator Width="1" Margin="4,8" Background="#44FFFFFF" />
+
+            <StackPanel x:Name="SwatchPanel" Orientation="Horizontal" />
+            <Button Content="&#xE710;"
+                    ToolTip="Autre couleur"
+                    AutomationProperties.Name="Autre couleur"
+                    Click="OnMoreColorsClicked" />
+
+            <Separator Width="1" Margin="4,8" Background="#44FFFFFF" />
+
+            <ToggleButton x:Name="SmallSizeButton"
+                          Tag="0"
+                          ToolTip="Trait fin"
+                          AutomationProperties.Name="Trait fin"
+                          Checked="OnSizePresetToggled"
+                          Unchecked="OnSizePresetToggled">
+                <Ellipse Width="4" Height="4" Fill="White" />
+            </ToggleButton>
+            <ToggleButton x:Name="MediumSizeButton"
+                          Tag="1"
+                          ToolTip="Trait moyen"
+                          AutomationProperties.Name="Trait moyen"
+                          Checked="OnSizePresetToggled"
+                          Unchecked="OnSizePresetToggled">
+                <Ellipse Width="8" Height="8" Fill="White" />
+            </ToggleButton>
+            <ToggleButton x:Name="LargeSizeButton"
+                          Tag="2"
+                          ToolTip="Trait épais"
+                          AutomationProperties.Name="Trait épais"
+                          Checked="OnSizePresetToggled"
+                          Unchecked="OnSizePresetToggled">
+                <Ellipse Width="14" Height="14" Fill="White" />
+            </ToggleButton>
+            <Slider x:Name="SizeSlider"
+                    Width="90"
+                    Margin="4,0"
+                    VerticalAlignment="Center"
+                    Focusable="False"
+                    Minimum="1"
+                    Maximum="40"
+                    TickFrequency="1"
+                    IsSnapToTickEnabled="True"
+                    IsMoveToPointEnabled="True"
+                    ToolTip="Taille du trait"
+                    AutomationProperties.Name="Taille du trait"
+                    ValueChanged="OnSizeSliderChanged" />
+
+            <Separator Width="1" Margin="4,8" Background="#44FFFFFF" />
+
+            <Button x:Name="UndoButton"
+                    Content="&#xE7A7;"
+                    ToolTip="Annuler (Ctrl+Z)"
+                    AutomationProperties.Name="Annuler"
+                    Click="OnUndoClicked" />
+            <Button x:Name="RedoButton"
+                    Content="&#xE7A6;"
+                    ToolTip="Rétablir (Ctrl+Y)"
+                    AutomationProperties.Name="Rétablir"
+                    Click="OnRedoClicked" />
+            <Button x:Name="ClearButton"
+                    Content="&#xE74D;"
+                    ToolTip="Tout effacer"
+                    AutomationProperties.Name="Tout effacer"
+                    Click="OnClearClicked" />
+            <ToggleButton x:Name="HideButton"
+                          Content="&#xED1A;"
+                          ToolTip="Masquer les annotations"
+                          AutomationProperties.Name="Masquer les annotations"
+                          Checked="OnHideToggled"
+                          Unchecked="OnHideToggled" />
+
+            <Separator Width="1" Margin="4,8" Background="#44FFFFFF" />
+
+            <Button x:Name="UpdateButton"
+                    Visibility="Collapsed"
+                    ToolTip="Mise à jour disponible"
+                    AutomationProperties.Name="Mise à jour disponible"
+                    Click="OnUpdateClicked">
+                <Grid>
+                    <TextBlock Text="&#xE896;" />
+                    <Ellipse Width="9"
+                             Height="9"
+                             Margin="0,-4,-6,0"
+                             HorizontalAlignment="Right"
+                             VerticalAlignment="Top"
+                             Fill="#FFFF5252" />
+                </Grid>
+            </Button>
+            <Button Content="&#xE8BB;"
+                    ToolTip="Quitter"
+                    AutomationProperties.Name="Quitter"
+                    Click="OnQuitClicked" />
+        </StackPanel>
+    </Border>
+</Window>

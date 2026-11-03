@@ -1,0 +1,11 @@
+bin/
+obj/
+dist/
+.vs/
+*.user
+TestResults/
+.remember/
+
+# Notes de travail locales : pas de diffusion dans le dépôt public.
+docs/
+signing-key.local.txt

@@ -1,0 +1,55 @@
+<Window x:Class="LegendaryPen.App.UpdateWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Mise à jour de Legendary Pen"
+        Width="440"
+        SizeToContent="Height"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Topmost="True"
+        WindowStartupLocation="CenterScreen">
+    <StackPanel Margin="18">
+        <TextBlock x:Name="HeadingText" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" />
+        <TextBlock x:Name="VersionsText" Margin="0,4,0,0" Foreground="#666666" />
+
+        <ItemsControl x:Name="NotesList" Margin="0,12,0,0">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding StringFormat='• {0}'}" TextWrapping="Wrap" Margin="0,2" />
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <TextBlock Margin="0,12,0,0"
+                   TextWrapping="Wrap"
+                   Text="L'application va se fermer puis redémarrer. Les annotations à l'écran seront perdues." />
+
+        <ProgressBar x:Name="DownloadProgress"
+                     Height="8"
+                     Margin="0,12,0,0"
+                     Maximum="1"
+                     Visibility="Collapsed"
+                     AutomationProperties.Name="Téléchargement" />
+
+        <TextBlock x:Name="ErrorText"
+                   Margin="0,12,0,0"
+                   Foreground="#C62828"
+                   TextWrapping="Wrap"
+                   Visibility="Collapsed" />
+
+        <StackPanel Margin="0,16,0,0" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="UpdateNowButton"
+                    Content="Mettre à jour"
+                    MinWidth="110"
+                    Padding="8,4"
+                    IsDefault="True"
+                    Click="OnUpdateClicked" />
+            <Button Content="Plus tard"
+                    MinWidth="90"
+                    Padding="8,4"
+                    Margin="8,0,0,0"
+                    IsCancel="True"
+                    Click="OnLaterClicked" />
+        </StackPanel>
+    </StackPanel>
+</Window>
