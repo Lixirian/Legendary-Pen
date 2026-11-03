@@ -83,6 +83,13 @@ internal sealed class PresentationWindow : Window
     /// <summary>Redessine les effets pour la position du pointeur, en pixels physiques.</summary>
     public void Render(PixelPoint pointer, bool spotlight)
     {
+        RenderSpotlight(pointer, spotlight);
+        RenderRipples();
+    }
+
+    /// <summary>Met le projecteur à jour pour la position du pointeur. Rien n'est redessiné si rien n'a changé.</summary>
+    public void RenderSpotlight(PixelPoint pointer, bool spotlight)
+    {
         var bounds = _monitor.Bounds;
         var dpi = VisualTreeHelper.GetDpi(this);
 
@@ -91,12 +98,14 @@ internal sealed class PresentationWindow : Window
             ? new Point((pointer.X - bounds.Left) / dpi.DpiScaleX, (pointer.Y - bounds.Top) / dpi.DpiScaleY)
             : (Point?)null;
 
-        _layer.Draw(spotlight, center);
-        RenderRipples(bounds, dpi);
+        _layer.Draw(spotlight, center, dpi);
     }
 
-    private void RenderRipples(PixelRect bounds, DpiScale dpi)
+    /// <summary>Avance l'animation des anneaux.</summary>
+    public void RenderRipples()
     {
+        var bounds = _monitor.Bounds;
+        var dpi = VisualTreeHelper.GetDpi(this);
         var now = Stopwatch.GetTimestamp();
 
         _ripples.RemoveAll(ripple => Stopwatch.GetElapsedTime(ripple.Start, now).TotalMilliseconds >= PresentationGeometry.RippleDuration);
@@ -157,7 +166,19 @@ internal sealed class PresentationWindow : Window
 
     private readonly record struct RippleRing(Point Center, double Radius, double Opacity, Color Color, double Thickness);
 
-    /// <summary>Un seul élément dessiné à la main : pas d'éléments de mise en page. Le voile et les anneaux ont chacun leur visuel : animer un anneau ne redessine pas le voile.</summary>
+    // Le lissage des bords est coupé pour les cases du voile et le bloc du trou, pas pour les anneaux.
+    private sealed class AliasedContainer : ContainerVisual
+    {
+        public AliasedContainer()
+        {
+            VisualEdgeMode = EdgeMode.Aliased;
+        }
+    }
+
+    /// <summary>
+    /// Un seul élément dessiné à la main : pas d'éléments de mise en page. Le voile et les anneaux ont chacun leur visuel : animer un anneau ne redessine pas le voile.
+    /// Avec AllowsTransparency, le coût suit la surface invalidée : le voile est une grille de cases fixes, et seul le bloc de cases qui contient le trou est redessiné.
+    /// </summary>
     private sealed class EffectsLayer : FrameworkElement
     {
         private const double VeilOpacity = 0.6;
@@ -168,32 +189,42 @@ internal sealed class PresentationWindow : Window
 
         private static readonly Brush Veil = CreateVeil();
 
-        private readonly DrawingVisual _spotlightVisual = new();
+        private readonly AliasedContainer _veilVisual = new();
+        private readonly DrawingVisual _holeVisual = new();
         private readonly DrawingVisual _ripplesVisual = new();
         private readonly RadialGradientBrush _hole = CreateHole();
+
+        private DrawingVisual[] _cells = [];
+        private int _columns;
+        private int _rows;
+        private double _cellX;
+        private double _cellY;
+        private SpotlightCells? _holeCells;
 
         private bool _spotlightDrawn;
         private bool _ripplesDrawn;
         private Point? _lastCenter;
         private Size _lastSize;
+        private DpiScale _lastDpi;
 
         public EffectsLayer()
         {
             IsHitTestVisible = false;
-            AddVisualChild(_spotlightVisual);
+            AddVisualChild(_veilVisual);
             AddVisualChild(_ripplesVisual);
         }
 
         protected override int VisualChildrenCount => 2;
 
         // Les anneaux passent au-dessus du voile.
-        protected override Visual GetVisualChild(int index) => index == 0 ? _spotlightVisual : _ripplesVisual;
+        protected override Visual GetVisualChild(int index) => index == 0 ? _veilVisual : _ripplesVisual;
 
-        public void Draw(bool spotlight, Point? center)
+        public void Draw(bool spotlight, Point? center, DpiScale dpi)
         {
             var size = new Size(ActualWidth, ActualHeight);
+            var layoutChanged = _lastSize != size || _lastDpi.DpiScaleX != dpi.DpiScaleX || _lastDpi.DpiScaleY != dpi.DpiScaleY;
 
-            if (_spotlightDrawn == spotlight && _lastCenter == center && _lastSize == size)
+            if (_spotlightDrawn == spotlight && _lastCenter == center && !layoutChanged)
             {
                 return;
             }
@@ -201,25 +232,138 @@ internal sealed class PresentationWindow : Window
             _spotlightDrawn = spotlight;
             _lastCenter = center;
             _lastSize = size;
-
-            using var context = _spotlightVisual.RenderOpen();
+            _lastDpi = dpi;
 
             if (!spotlight || size.Width <= 0 || size.Height <= 0)
             {
+                ClearVeil();
                 return;
             }
 
-            var area = new Rect(size);
+            if (layoutChanged || _cells.Length == 0)
+            {
+                BuildVeil(size, dpi);
+            }
 
+            MoveHole(center);
+        }
+
+        private void ClearVeil()
+        {
+            _veilVisual.Children.Clear();
+            _cells = [];
+            _holeCells = null;
+        }
+
+        // Tout se recrée ici, mais seulement à l'allumage et aux changements de taille ou d'échelle.
+        private void BuildVeil(Size size, DpiScale dpi)
+        {
+            ClearVeil();
+
+            _cellX = PresentationGeometry.SpotlightCell(dpi.DpiScaleX);
+            _cellY = PresentationGeometry.SpotlightCell(dpi.DpiScaleY);
+            _columns = (int)Math.Ceiling(size.Width / _cellX);
+            _rows = (int)Math.Ceiling(size.Height / _cellY);
+            _cells = new DrawingVisual[_columns * _rows];
+
+            for (var row = 0; row < _rows; row++)
+            {
+                for (var column = 0; column < _columns; column++)
+                {
+                    var cell = new DrawingVisual();
+                    _cells[(row * _columns) + column] = cell;
+                    _veilVisual.Children.Add(cell);
+                    DrawCell(column, row, visible: true);
+                }
+            }
+
+            ClearHole();
+            _veilVisual.Children.Add(_holeVisual);
+        }
+
+        private void MoveHole(Point? center)
+        {
             if (center is not { } point)
             {
-                context.DrawRectangle(Veil, null, area);
+                if (_holeCells is { } left)
+                {
+                    RestoreVeil(left, null);
+                    ClearHole();
+                    _holeCells = null;
+                }
+
                 return;
             }
+
+            var cells = PresentationGeometry.CellsAround(point.X, point.Y, SpotlightRadius, _cellX, _cellY, _columns, _rows);
 
             _hole.Center = point;
             _hole.GradientOrigin = point;
-            context.DrawRectangle(_hole, null, area);
+
+            // Le bloc ne change pas : déplacer le dégradé suffit, le reste de la fenêtre n'est pas touché.
+            if (_holeCells == cells)
+            {
+                return;
+            }
+
+            if (_holeCells is { } previous)
+            {
+                RestoreVeil(previous, cells);
+            }
+
+            for (var row = cells.FirstRow; row <= cells.LastRow; row++)
+            {
+                for (var column = cells.FirstColumn; column <= cells.LastColumn; column++)
+                {
+                    if (_holeCells is not { } shown || !shown.Contains(column, row))
+                    {
+                        DrawCell(column, row, visible: false);
+                    }
+                }
+            }
+
+            _holeCells = cells;
+
+            using var context = _holeVisual.RenderOpen();
+            context.DrawRectangle(_hole, null, BlockRect(cells));
+        }
+
+        // Rend le voile aux cases que le trou quitte.
+        private void RestoreVeil(SpotlightCells previous, SpotlightCells? next)
+        {
+            for (var row = previous.FirstRow; row <= previous.LastRow; row++)
+            {
+                for (var column = previous.FirstColumn; column <= previous.LastColumn; column++)
+                {
+                    if (next is not { } kept || !kept.Contains(column, row))
+                    {
+                        DrawCell(column, row, visible: true);
+                    }
+                }
+            }
+        }
+
+        private void DrawCell(int column, int row, bool visible)
+        {
+            using var context = _cells[(row * _columns) + column].RenderOpen();
+
+            if (visible)
+            {
+                context.DrawRectangle(Veil, null, BlockRect(new SpotlightCells(column, row, column, row)));
+            }
+        }
+
+        private void ClearHole()
+        {
+            _holeVisual.RenderOpen().Close();
+        }
+
+        // Les cases voisines partagent exactement la même coordonnée : sans lissage des bords, ni vide ni recouvrement entre elles.
+        private Rect BlockRect(SpotlightCells cells)
+        {
+            var left = cells.FirstColumn * _cellX;
+            var top = cells.FirstRow * _cellY;
+            return new Rect(left, top, ((cells.LastColumn + 1) * _cellX) - left, ((cells.LastRow + 1) * _cellY) - top);
         }
 
         /// <summary>Dessine les anneaux. Sans anneau, rien n'est redessiné sauf pour effacer le dernier.</summary>

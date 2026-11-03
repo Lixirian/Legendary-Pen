@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Windows.Media;
+using System.Windows.Threading;
 using LegendaryPen.Core;
 
 namespace LegendaryPen.App;
@@ -8,24 +10,33 @@ internal sealed class PresentationManager : IDisposable
 {
     private static readonly Color RightClickColor = Color.FromRgb(0xD0, 0xD0, 0xD0);
 
+    // Plus court que le pas de la minuterie de Windows : le réveil tombe sur chaque pas, le plafond se règle ensuite par tranche.
+    private static readonly TimeSpan PointerPollInterval = TimeSpan.FromMilliseconds(10);
+
     private readonly PresentationState _state;
     private readonly Func<InkColor> _leftClickColor;
+    private readonly Func<PixelPoint> _readPointer;
     private readonly Dictionary<string, PresentationWindow> _windows = [];
     private readonly HashSet<string> _connected = [];
+    private readonly Stopwatch _pointerClock = Stopwatch.StartNew();
 
     private IReadOnlyList<MonitorArea> _monitors = [];
     private MagnifierWindow? _magnifier;
     private MouseClickHook? _clickHook;
+    private DispatcherTimer? _pointerTimer;
+    private long _pointerSlot = -1;
     private IntPtr _toolbarHandle;
     private bool _suspended;
     private bool _subscribed;
     private bool _disposed;
 
     /// <param name="leftClickColor">Couleur de l'anneau du clic gauche, lue à chaque clic : celle du stylo.</param>
-    public PresentationManager(PresentationState state, Func<InkColor> leftClickColor)
+    /// <param name="readPointer">Source de la position du pointeur ; par défaut, la vraie souris.</param>
+    public PresentationManager(PresentationState state, Func<InkColor> leftClickColor, Func<PixelPoint>? readPointer = null)
     {
         _state = state;
         _leftClickColor = leftClickColor;
+        _readPointer = readPointer ?? Win32.GetPointer;
         _state.Changed += Apply;
     }
 
@@ -109,6 +120,7 @@ internal sealed class PresentationManager : IDisposable
         _disposed = true;
         _state.Changed -= Apply;
         SetSubscribed(false);
+        SetPointerTracking(false);
         SetClickHook(false);
 
         foreach (var window in _windows.Values)
@@ -161,6 +173,7 @@ internal sealed class PresentationManager : IDisposable
         }
 
         SetSubscribed(run && NeedsFrames());
+        SetPointerTracking(run && _state.SpotlightOn);
 
         if (run && _state.MagnifierOn)
         {
@@ -191,12 +204,18 @@ internal sealed class PresentationManager : IDisposable
         }
     }
 
-    // Le suivi du pointeur ne sert qu'au projecteur, et l'animation qu'à un anneau vivant : un écran immobile ne redessine rien.
-    private bool NeedsFrames() => _state.SpotlightOn || _windows.Values.Any(window => window.HasRipples);
+    // S'abonner à Rendering fait travailler le rendu à chaque image : seul un anneau vivant le justifie.
+    private bool NeedsFrames() => _windows.Values.Any(window => window.IsVisible && window.HasRipples);
 
     private void OnRendering(object? sender, EventArgs e)
     {
-        RenderFrame();
+        foreach (var window in _windows.Values)
+        {
+            if (window.IsVisible)
+            {
+                window.RenderRipples();
+            }
+        }
 
         if (!NeedsFrames())
         {
@@ -204,9 +223,51 @@ internal sealed class PresentationManager : IDisposable
         }
     }
 
+    // Le projecteur suit le pointeur par une minuterie : un pointeur immobile ne provoque aucun rendu.
+    private void SetPointerTracking(bool tracking)
+    {
+        if (tracking)
+        {
+            _pointerTimer ??= CreatePointerTimer();
+            _pointerTimer.Start();
+        }
+        else
+        {
+            _pointerTimer?.Stop();
+        }
+    }
+
+    private DispatcherTimer CreatePointerTimer()
+    {
+        var timer = new DispatcherTimer(DispatcherPriority.Render) { Interval = PointerPollInterval };
+        timer.Tick += OnPointerTick;
+        return timer;
+    }
+
+    private void OnPointerTick(object? sender, EventArgs e)
+    {
+        var slot = PresentationGeometry.SpotlightSlot(_pointerClock.Elapsed);
+
+        if (slot == _pointerSlot)
+        {
+            return;
+        }
+
+        _pointerSlot = slot;
+        var pointer = _readPointer();
+
+        foreach (var window in _windows.Values)
+        {
+            if (window.IsVisible)
+            {
+                window.RenderSpotlight(pointer, _state.SpotlightOn);
+            }
+        }
+    }
+
     private void RenderFrame()
     {
-        var pointer = Win32.GetPointer();
+        var pointer = _readPointer();
 
         foreach (var window in _windows.Values)
         {
@@ -252,7 +313,7 @@ internal sealed class PresentationManager : IDisposable
         }
 
         window.AddRipple(point, isRight ? RightClickColor : ToColor(_leftClickColor()));
-        window.Render(Win32.GetPointer(), _state.SpotlightOn);
+        window.Render(_readPointer(), _state.SpotlightOn);
         SetSubscribed(true);
     }
 

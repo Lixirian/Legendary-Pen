@@ -147,4 +147,49 @@ public class PresentationTests
         Assert.False(assigned[HotkeyAction.Spotlight].IsNone);
         Assert.Single(bare.Validate());
     }
+
+    [Theory]
+    [InlineData(1.0, 128)]
+    [InlineData(1.25, 160)]
+    [InlineData(1.5, 192)]
+    [InlineData(1.75, 224)]
+    [InlineData(1.1, 141)]
+    public void Spotlight_cell_is_a_whole_number_of_physical_pixels(double scale, int pixels)
+    {
+        Assert.Equal(pixels, PresentationGeometry.SpotlightCell(scale) * scale, 9);
+    }
+
+    [Fact]
+    public void Spotlight_cells_cover_the_hole_and_nothing_beyond()
+    {
+        var cells = PresentationGeometry.CellsAround(1300, 700, 180, 128, 128, 20, 12);
+
+        Assert.Equal(new SpotlightCells(8, 4, 11, 6), cells);
+        Assert.True(cells.Contains(8, 4));
+        Assert.True(cells.Contains(11, 6));
+        Assert.False(cells.Contains(7, 4));
+        Assert.False(cells.Contains(11, 7));
+    }
+
+    [Fact]
+    public void Spotlight_cells_stay_inside_the_grid_at_the_screen_edges()
+    {
+        Assert.Equal(new SpotlightCells(0, 0, 1, 1), PresentationGeometry.CellsAround(1, 1, 180, 128, 128, 20, 12));
+        Assert.Equal(new SpotlightCells(18, 9, 19, 11), PresentationGeometry.CellsAround(2559, 1439, 180, 128, 128, 20, 12));
+    }
+
+    [Fact]
+    public void Spotlight_slots_allow_at_most_sixty_updates_per_second()
+    {
+        var slots = new HashSet<long>();
+
+        // Réveils bien plus rapides que le plafond : une seconde ne doit jamais donner plus de soixante tranches.
+        for (var milliseconds = 0.0; milliseconds < 1000; milliseconds += 0.5)
+        {
+            slots.Add(PresentationGeometry.SpotlightSlot(TimeSpan.FromMilliseconds(milliseconds)));
+        }
+
+        Assert.Equal(60, slots.Count);
+    }
 }
+
