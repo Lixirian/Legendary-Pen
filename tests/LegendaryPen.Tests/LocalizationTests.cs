@@ -28,6 +28,11 @@ public sealed partial class LocalizationTests : IDisposable
         "Loupe indisponible : {exception.Message}",
         "The click hook thread did not stop in time.",
         "Click effects unavailable: the mouse hook was refused.",
+        "The stack already holds the maximum number of layers.",
+        "The last layer cannot be removed.",
+        "This layer is already in the stack.",
+        "No visible layer.",
+        "Unknown layer.",
     ];
 
     public void Dispose() => Loc.Use(AppLanguage.French, "fr");
