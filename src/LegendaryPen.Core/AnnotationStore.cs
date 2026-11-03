@@ -5,8 +5,21 @@ namespace LegendaryPen.Core;
 /// <summary>Texte d'annotation enregistré.</summary>
 public sealed record SavedText(string Text, double Left, double Top, double FontSize, string FontFamily, string Color);
 
-/// <summary>Contenu enregistré d'une surface : traits au format de l'encre Windows, et textes.</summary>
-public sealed record SavedSurface(byte[] Strokes, List<SavedText> Texts);
+/// <summary>Un calque enregistré : le nom se déduit du numéro, il n'est pas gardé.</summary>
+public sealed record SavedLayer(Guid Id, int Number, bool IsVisible, byte[] Strokes, List<SavedText> Texts);
+
+/// <summary>
+/// Contenu enregistré d'une surface. Les fichiers des versions 0.6 à 0.8 n'ont que <paramref name="Strokes"/> et
+/// <paramref name="Texts"/> (<paramref name="Layers"/> est alors nul). Les nouvelles écritures remplissent
+/// <paramref name="Layers"/>, <paramref name="ActiveLayerId"/> et <paramref name="NextNumber"/>, et laissent les deux
+/// premiers champs vides.
+/// </summary>
+public sealed record SavedSurface(
+    byte[] Strokes,
+    List<SavedText> Texts,
+    List<SavedLayer>? Layers = null,
+    Guid? ActiveLayerId = null,
+    int? NextNumber = null);
 
 /// <summary>Annotations gardées sur cet ordinateur, un fichier par écran et par fond.</summary>
 public sealed class AnnotationStore(string folder)

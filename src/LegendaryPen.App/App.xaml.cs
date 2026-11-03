@@ -63,16 +63,24 @@ public partial class App : Application
             "Legendary Pen",
             "annotations")));
         _state.Changed += () => _pen.ActivateTool(_state.Tool);
-        histories.Changed += () =>
+        void MarkAnnotationsForSave()
         {
             if (_options.KeepAnnotations)
             {
                 _annotationSaveTimer.Stop();
                 _annotationSaveTimer.Start();
             }
-        };
+        }
+
+        histories.Changed += MarkAnnotationsForSave;
         _annotationSaveTimer.Tick += (_, _) => SaveAnnotations();
         _overlays.UpdateMonitors(monitors);
+
+        // Les calques font partie des annotations conservées : ajouter, retirer, déplacer, masquer ou choisir un calque compte aussi.
+        foreach (var background in Enum.GetValues<BoardBackground>())
+        {
+            _layerStacks.For(background).Changed += MarkAnnotationsForSave;
+        }
         _presenter = new PresentationManager(_presentation, () => _pen.Color);
         _presenter.UpdateMonitors(monitors);
 

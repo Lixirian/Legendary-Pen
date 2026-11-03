@@ -12,6 +12,7 @@ public sealed class OverlayManager
     private readonly LayerStacks _layerStacks;
     private readonly LiveOptions _options;
     private readonly AnnotationStore _annotations;
+    private readonly HashSet<BoardBackground> _restoredStacks = [];
 
     private OverlayWindow? _keyboardOverlay;
     private IntPtr _toolbarHandle;
@@ -128,7 +129,7 @@ public sealed class OverlayManager
 
         if (_options.KeepAnnotations)
         {
-            overlay.RestoreAnnotations(_annotations);
+            overlay.RestoreAnnotations(_annotations, _restoredStacks);
         }
 
         overlay.Show();

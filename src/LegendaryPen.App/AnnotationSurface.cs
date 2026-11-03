@@ -142,61 +142,85 @@ internal sealed class AnnotationSurface : Grid
     }
 
     /// <summary>
-    /// Contenu à conserver, sans l'encre évanescente. Renvoie null si la surface est vide.
-    /// Règle provisoire, en attendant le format à calques : les calques de la pile, masqués compris, sont fusionnés
-    /// de bas en haut dans le format actuel, pour ne perdre aucun contenu. <see cref="Restore"/> remet ce contenu
-    /// fusionné sur le calque actif.
+    /// Contenu à conserver, sans l'encre évanescente : tous les calques de la pile, masqués ou vides compris, pour que la
+    /// pile revienne telle quelle. Un calque retiré n'en fait pas partie. Renvoie null si la surface est vide et que la
+    /// pile est celle d'origine.
     /// </summary>
     public SavedSurface? ToSaved()
     {
-        var layers = StackedLayers();
-        var texts = layers
-            .SelectMany(layer => layer.Texts.Children.OfType<TextBlock>())
-            .Except(_fadingTexts)
-            .ToList();
-        var merged = new StrokeCollection();
+        var layers = new List<SavedLayer>();
+        var hasContent = false;
 
-        foreach (var layer in layers)
+        foreach (var info in _stack.Layers)
         {
-            merged.Add(layer.Ink.Strokes);
+            var layer = LayerFor(info.Id);
+            var texts = layer.Texts.Children.OfType<TextBlock>().Except(_fadingTexts).ToList();
+            hasContent |= layer.Ink.Strokes.Count > 0 || texts.Count > 0;
+
+            using var strokes = new MemoryStream();
+
+            if (layer.Ink.Strokes.Count > 0)
+            {
+                layer.Ink.Strokes.Save(strokes, compress: true);
+            }
+
+            layers.Add(new SavedLayer(info.Id, info.Number, info.IsVisible, strokes.ToArray(), texts.Select(ToSavedText).ToList()));
         }
 
-        if (merged.Count == 0 && texts.Count == 0)
+        var state = _stack.Capture();
+        var isOriginalStack = state.Layers.Count == 1 && state.Layers[0].Number == 1 && state.NextNumber == 2;
+
+        if (!hasContent && isOriginalStack)
         {
             return null;
         }
 
-        using var strokes = new MemoryStream();
-        merged.Save(strokes, compress: true);
+        return new SavedSurface([], [], layers, state.ActiveId, state.NextNumber);
+    }
 
-        return new SavedSurface(
-            strokes.ToArray(),
-            texts.Select(text =>
-            {
-                var color = ((SolidColorBrush)text.Foreground).Color;
+    private static SavedText ToSavedText(TextBlock text)
+    {
+        var color = ((SolidColorBrush)text.Foreground).Color;
 
-                return new SavedText(
-                    text.Text,
-                    Canvas.GetLeft(text),
-                    Canvas.GetTop(text),
-                    text.FontSize,
-                    text.FontFamily.Source,
-                    new InkColor(color.R, color.G, color.B).ToHex());
-            }).ToList());
+        return new SavedText(
+            text.Text,
+            Canvas.GetLeft(text),
+            Canvas.GetTop(text),
+            text.FontSize,
+            text.FontFamily.Source,
+            new InkColor(color.R, color.G, color.B).ToHex());
     }
 
     /// <summary>
-    /// Remet un contenu enregistré sur le calque actif, selon la règle provisoire de <see cref="ToSaved"/>.
-    /// Des traits illisibles sont ignorés sans gêner le reste.
+    /// Remet un contenu enregistré. Un fichier sans calques (versions 0.6 à 0.8) va dans le calque actif, la pile
+    /// restant telle quelle. Sinon la pile est rétablie par le premier fichier relu pour ce fond, puis les fichiers des
+    /// autres écrans rattachent leur contenu par identifiant de calque. Des traits illisibles sont ignorés sans gêner le reste.
     /// </summary>
-    public void Restore(SavedSurface saved)
+    public void Restore(SavedSurface saved, bool stackAlreadyRestored)
     {
-        if (saved.Strokes.Length > 0)
+        if (saved.Layers is not { } layers)
+        {
+            RestoreContent(_activeLayer, saved.Strokes, saved.Texts);
+
+            return;
+        }
+
+        var targets = LayerRestoration.RestoreInto(_stack, saved, stackAlreadyRestored);
+
+        foreach (var layer in layers)
+        {
+            RestoreContent(LayerFor(targets[layer.Id]), layer.Strokes, layer.Texts);
+        }
+    }
+
+    private void RestoreContent(AnnotationLayer target, byte[] savedStrokes, List<SavedText> savedTexts)
+    {
+        if (savedStrokes.Length > 0)
         {
             try
             {
-                using var strokes = new MemoryStream(saved.Strokes);
-                Ink.Strokes.Add(new StrokeCollection(strokes));
+                using var strokes = new MemoryStream(savedStrokes);
+                target.Ink.Strokes.Add(new StrokeCollection(strokes));
             }
             catch (Exception exception) when (exception is ArgumentException or IOException or InvalidOperationException)
             {
@@ -204,7 +228,7 @@ internal sealed class AnnotationSurface : Grid
             }
         }
 
-        foreach (var item in saved.Texts)
+        foreach (var item in savedTexts)
         {
             var color = InkColor.TryParse(item.Color, out var parsed) ? parsed : _pen.Color;
             var text = new TextBlock
@@ -217,7 +241,7 @@ internal sealed class AnnotationSurface : Grid
 
             Canvas.SetLeft(text, item.Left);
             Canvas.SetTop(text, item.Top);
-            _activeLayer.Texts.Children.Add(text);
+            target.Texts.Children.Add(text);
         }
     }
 

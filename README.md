@@ -57,7 +57,7 @@ Chaque fond (transparent, tableau blanc, tableau noir) compte de 1 à 8 calques,
 - la case de chaque ligne affiche ou masque le calque, et les flèches le montent ou le descendent. Le calque actif n'est jamais masqué, et le dernier calque visible ne peut pas l'être non plus ;
 - « Ajouter » crée un calque au-dessus du calque actif, « Supprimer » retire le calque actif.
 
-Supprimer un calque s'annule avec Ctrl+Z, contenu compris. Annuler agit toujours sur le calque concerné, et « Tout effacer » vide tous les calques en une seule action annulable. Aucun raccourci n'est attribué par défaut ; il se choisit dans les réglages.
+Supprimer un calque s'annule avec Ctrl+Z, contenu compris. Annuler agit toujours sur le calque concerné, et « Tout effacer » vide tous les calques en une seule action annulable. Aucun raccourci n'est attribué par défaut ; il se choisit dans les réglages. Quand les annotations sont conservées, les calques le sont aussi : ordre, visibilité et calque actif reviennent au redémarrage, et les anciens fichiers d'annotations restent lisibles.
 
 ## Signer un PDF
 
