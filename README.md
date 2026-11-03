@@ -25,9 +25,11 @@ L'installeur n'étant pas signé par un certificat commercial, Windows SmartScre
 | Encre évanescente | `F` |
 | Masquer les annotations | `V` |
 | Tout effacer | `Suppr` |
+| Capture d'écran | `C` ou bouton de la barre |
+| Afficher ou masquer la barre | `Ctrl+Maj+F9` ou icône près de l'horloge |
 | Changer la taille | Molette |
 
-Seul `Ctrl+Maj+Espace` reste réservé en permanence. Les autres touches ne le sont qu'en mode Dessin, et sont libérées pendant la saisie d'un texte.
+Tous les raccourcis se modifient dans les réglages. Seuls `Ctrl+Maj+Espace` et `Ctrl+Maj+F9` restent réservés en permanence. Les autres touches ne le sont qu'en mode Dessin, et sont libérées pendant la saisie d'un texte.
 
 ## Mises à jour
 

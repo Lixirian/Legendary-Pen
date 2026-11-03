@@ -18,7 +18,7 @@ internal sealed class AnnotationSurface : Grid
     private readonly AppState _state;
     private readonly PenState _pen;
     private readonly ActionHistory _history;
-    private readonly FadeTiming _fadeTiming;
+    private readonly LiveOptions _options;
     private readonly Action<bool> _textEditingChanged;
     private readonly Canvas _textLayer = new() { IsHitTestVisible = false };
     private readonly Canvas _editorLayer = new();
@@ -34,13 +34,13 @@ internal sealed class AnnotationSurface : Grid
         AppState state,
         PenState pen,
         ActionHistory history,
-        FadeTiming fadeTiming,
+        LiveOptions options,
         Action<bool> textEditingChanged)
     {
         _state = state;
         _pen = pen;
         _history = history;
-        _fadeTiming = fadeTiming;
+        _options = options;
         _textEditingChanged = textEditingChanged;
 
         Background = Brushes.Transparent;
@@ -159,7 +159,7 @@ internal sealed class AnnotationSurface : Grid
         {
             // Une annotation évanescente n'entre pas dans l'historique : Annuler ne peut pas la ramener.
             Ink.Strokes.Remove(stroke);
-            _fadeLayer.Add(stroke, _fadeTiming);
+            _fadeLayer.Add(stroke, _options.Fade);
         }
         else
         {
@@ -256,7 +256,7 @@ internal sealed class AnnotationSurface : Grid
 
     private void OnPointerWheel(object sender, MouseWheelEventArgs e)
     {
-        if (_state.CanDraw && _editor is null)
+        if (_options.WheelChangesSize && _state.CanDraw && _editor is null)
         {
             _pen.SetSize(_pen.Size + Math.Sign(e.Delta));
             e.Handled = true;
@@ -355,7 +355,7 @@ internal sealed class AnnotationSurface : Grid
     {
         _fadingTexts.Add(text);
 
-        var animation = new DoubleAnimation(1, 0, new Duration(_fadeTiming.Duration)) { BeginTime = _fadeTiming.Delay };
+        var animation = new DoubleAnimation(1, 0, new Duration(_options.Fade.Duration)) { BeginTime = _options.Fade.Delay };
         animation.Completed += (_, _) =>
         {
             _fadingTexts.Remove(text);
@@ -377,7 +377,7 @@ internal sealed class AnnotationSurface : Grid
             Height = thickness,
             IsHighlighter = highlighter,
             StylusTip = highlighter ? StylusTip.Rectangle : StylusTip.Ellipse,
-            IgnorePressure = !forPenInput || highlighter,
+            IgnorePressure = !forPenInput || highlighter || !_options.PressureEnabled,
             FitToCurve = forPenInput && !highlighter,
         };
     }

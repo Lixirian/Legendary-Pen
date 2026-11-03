@@ -18,7 +18,8 @@ internal sealed class OverlayWindow : Window
     private readonly AppState _state;
     private readonly PenState _pen;
     private readonly SurfaceHistories _histories;
-    private readonly FadeTiming _fadeTiming;
+    private readonly LiveOptions _options;
+    private readonly Func<string?> _boardMonitor;
     private readonly Action<bool> _textEditingChanged;
     private readonly Grid _root = new();
     private readonly Dictionary<BoardBackground, AnnotationSurface> _surfaces = [];
@@ -31,14 +32,16 @@ internal sealed class OverlayWindow : Window
         AppState state,
         PenState pen,
         SurfaceHistories histories,
-        FadeTiming fadeTiming,
+        LiveOptions options,
+        Func<string?> boardMonitor,
         Action<bool> textEditingChanged)
     {
         _monitor = monitor;
         _state = state;
         _pen = pen;
         _histories = histories;
-        _fadeTiming = fadeTiming;
+        _options = options;
+        _boardMonitor = boardMonitor;
         _textEditingChanged = textEditingChanged;
 
         WindowStyle = WindowStyle.None;
@@ -73,16 +76,19 @@ internal sealed class OverlayWindow : Window
             surface.CommitText();
         }
 
-        Win32.SetClickThrough(_handle, !_state.OverlayAcceptsInput);
+        var background = EffectiveBackground;
+        var acceptsInput = OverlayInputRules.AcceptsInput(_state.AnnotationsVisible, _state.Mode, background);
 
-        Background = _state.Background switch
+        Win32.SetClickThrough(_handle, !acceptsInput);
+
+        Background = background switch
         {
             BoardBackground.Whiteboard => WhiteboardBackground,
             BoardBackground.Blackboard => BlackboardBackground,
-            _ => _state.OverlayAcceptsInput ? InputBackground : Brushes.Transparent,
+            _ => acceptsInput ? InputBackground : Brushes.Transparent,
         };
 
-        var current = GetSurface(_state.Background);
+        var current = GetSurface(background);
 
         foreach (var surface in _surfaces.Values)
         {
@@ -96,7 +102,15 @@ internal sealed class OverlayWindow : Window
 
     public SurfaceSnapshot? TakeSnapshotOfCurrentSurface()
     {
-        return GetSurface(_state.Background).TakeSnapshotAndClearFading();
+        return GetSurface(EffectiveBackground).TakeSnapshotAndClearFading();
+    }
+
+    public void CommitText()
+    {
+        foreach (var surface in _surfaces.Values)
+        {
+            surface.CommitText();
+        }
     }
 
     /// <summary>La saisie de texte a besoin du clavier, donc d'une fenêtre activable.</summary>
@@ -121,11 +135,17 @@ internal sealed class OverlayWindow : Window
         HwndSource.FromHwnd(_handle)!.AddHook(OnWindowMessage);
     }
 
+    // Limité à un écran, un tableau laisse les autres écrans se comporter normalement.
+    private BoardBackground EffectiveBackground =>
+        _options.BoardOnToolbarScreenOnly && _boardMonitor() != _monitor.DeviceName
+            ? BoardBackground.Transparent
+            : _state.Background;
+
     private AnnotationSurface GetSurface(BoardBackground background)
     {
         if (!_surfaces.TryGetValue(background, out var surface))
         {
-            surface = new AnnotationSurface(_state, _pen, _histories.For(background), _fadeTiming, _textEditingChanged);
+            surface = new AnnotationSurface(_state, _pen, _histories.For(background), _options, _textEditingChanged);
             _surfaces[background] = surface;
             _root.Children.Add(surface);
         }

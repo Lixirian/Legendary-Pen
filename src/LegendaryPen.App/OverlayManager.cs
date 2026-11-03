@@ -9,21 +9,25 @@ public sealed class OverlayManager
     private readonly AppState _state;
     private readonly PenState _pen;
     private readonly SurfaceHistories _histories;
-    private readonly FadeTiming _fadeTiming;
+    private readonly LiveOptions _options;
 
     private OverlayWindow? _keyboardOverlay;
     private IntPtr _toolbarHandle;
 
-    public OverlayManager(AppState state, PenState pen, SurfaceHistories histories, FadeTiming fadeTiming)
+    public OverlayManager(AppState state, PenState pen, SurfaceHistories histories, LiveOptions options)
     {
         _state = state;
         _pen = pen;
         _histories = histories;
-        _fadeTiming = fadeTiming;
+        _options = options;
 
         _state.Changed += ApplyToVisibleOverlays;
         _pen.Changed += ApplyToVisibleOverlays;
+        _options.Changed += ApplyToVisibleOverlays;
     }
+
+    /// <summary>Indique l'écran de la barre d'outils, pour un tableau limité à un écran.</summary>
+    public Func<string?> BoardMonitor { get; set; } = () => null;
 
     /// <summary>Vrai pendant la saisie d'un texte : le clavier doit rester libre.</summary>
     public bool IsEditingText { get; private set; }
@@ -66,6 +70,16 @@ public sealed class OverlayManager
         }
     }
 
+    public void CommitText()
+    {
+        foreach (var overlay in _overlays.Values)
+        {
+            overlay.CommitText();
+        }
+    }
+
+    public void Refresh() => ApplyToVisibleOverlays();
+
     public void ClearAll()
     {
         var cleared = _overlays.Values
@@ -87,7 +101,7 @@ public sealed class OverlayManager
     {
         OverlayWindow? overlay = null;
 
-        overlay = new OverlayWindow(monitor, _state, _pen, _histories, _fadeTiming, editing => OnTextEditing(overlay!, editing))
+        overlay = new OverlayWindow(monitor, _state, _pen, _histories, _options, () => BoardMonitor(), editing => OnTextEditing(overlay!, editing))
         {
             ToolbarHandle = _toolbarHandle,
         };

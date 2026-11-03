@@ -1,5 +1,7 @@
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using LegendaryPen.Core;
 using Microsoft.Win32;
@@ -20,6 +22,9 @@ public partial class App : Application
     private OverlayManager? _overlays;
     private ToolbarWindow? _toolbar;
     private UpdateService? _updates;
+    private LiveOptions? _options;
+    private TrayIcon? _tray;
+    private HotkeyMap? _pendingHotkeys;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -45,8 +50,8 @@ public partial class App : Application
         var histories = new SurfaceHistories(_state);
         var monitors = Win32.GetMonitors();
         _pen = new PenState(_settings);
-        var fadeTiming = new FadeTiming(_settings.FadeDelaySeconds, _settings.FadeDurationSeconds);
-        _overlays = new OverlayManager(_state, _pen, histories, fadeTiming);
+        _options = new LiveOptions(_settings);
+        _overlays = new OverlayManager(_state, _pen, histories, _options);
         _overlays.UpdateMonitors(monitors);
 
         PixelPoint? savedPosition = _settings is { ToolbarX: { } x, ToolbarY: { } y } ? new PixelPoint(x, y) : null;
@@ -62,7 +67,11 @@ public partial class App : Application
             _settings.ToolbarVertical,
             ToolbarDocking.Sanitize(_settings.ToolbarDock),
             _settings.ToolbarDockMonitor,
-            ToolbarDocking.CollapseDelay(_settings.ToolbarCollapseSeconds));
+            ToolbarDocking.CollapseDelay(_settings.ToolbarCollapseSeconds),
+            new HotkeyMap(_settings.Hotkeys));
+        _overlays.BoardMonitor = () => _toolbar.CurrentMonitorName;
+        _toolbar.CaptureRequested += RequestCapture;
+        _toolbar.SettingsRequested += RequestSettings;
         _toolbar.PositionChanged += OnToolbarMoved;
         _toolbar.OrientationChanged += () =>
         {
@@ -76,6 +85,8 @@ public partial class App : Application
         };
         _toolbar.Show();
         _overlays.KeepBelowToolbar(new System.Windows.Interop.WindowInteropHelper(_toolbar).Handle);
+
+        _tray = new TrayIcon(_toolbar.ToggleBarVisibility, RequestCapture, RequestSettings, Shutdown);
 
         _pen.Changed += RestartSaveTimer;
         _state.Changed += () =>
@@ -110,6 +121,7 @@ public partial class App : Application
         SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
         _displayChangeTimer.Stop();
         _updateTimer.Stop();
+        _tray?.Dispose();
 
         if (_saveTimer.IsEnabled)
         {
@@ -118,6 +130,129 @@ public partial class App : Application
 
         _instanceGuard?.Dispose();
         base.OnExit(e);
+    }
+
+    // Différé : la demande peut venir d'un raccourci, en plein traitement d'un message Windows.
+    private void RequestCapture() => Dispatcher.BeginInvoke(RunCapture);
+
+    private void RequestSettings() => Dispatcher.BeginInvoke(OpenSettings);
+
+    private void RunCapture()
+    {
+        _overlays!.CommitText();
+
+        var toolbar = _toolbar!;
+        BitmapSource? image = null;
+
+        toolbar.RunExclusive(() =>
+        {
+            var previousOpacity = toolbar.Opacity;
+            toolbar.Opacity = 0;
+
+            try
+            {
+                // La barre doit avoir réellement disparu de l'écran avant la copie.
+                WaitFor(TimeSpan.FromMilliseconds(150));
+                image = new CaptureSession().Run(toolbar.Monitors);
+            }
+            catch (InvalidOperationException exception)
+            {
+                MessageBox.Show(exception.Message, "Legendary Pen", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            finally
+            {
+                toolbar.Opacity = previousOpacity;
+            }
+
+            if (image is not null)
+            {
+                DeliverCapture(image);
+            }
+        });
+    }
+
+    private static void WaitFor(TimeSpan duration)
+    {
+        var frame = new DispatcherFrame();
+        var timer = new DispatcherTimer { Interval = duration };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            frame.Continue = false;
+        };
+        timer.Start();
+        Dispatcher.PushFrame(frame);
+    }
+
+    private void DeliverCapture(BitmapSource image)
+    {
+        try
+        {
+            switch (_settings.CaptureDestination)
+            {
+                case CaptureDestination.Clipboard:
+                    CaptureDelivery.CopyToClipboard(image);
+                    _tray!.Notify("Capture copiée dans le presse-papiers.");
+                    break;
+
+                case CaptureDestination.Ask:
+                    NotifySaved(CaptureDelivery.SaveWithDialog(image, _settings.CaptureFolder));
+                    break;
+
+                default:
+                    NotifySaved(CaptureDelivery.SaveToFolder(image, _settings.CaptureFolder));
+                    break;
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or COMException)
+        {
+            MessageBox.Show(
+                $"La capture n'a pas pu être enregistrée : {exception.Message}",
+                "Legendary Pen",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+    }
+
+    private void NotifySaved(string? path)
+    {
+        if (path is not null)
+        {
+            _tray!.Notify($"Capture enregistrée : {Path.GetFileName(path)}", () => CaptureDelivery.ShowInExplorer(path));
+        }
+    }
+
+    private void OpenSettings()
+    {
+        _toolbar!.RunExclusive(() =>
+        {
+            var canChangeStartup = InstallLocation.IsInstalledCopy(Environment.ProcessPath, UpdateService.InstallDirectory);
+            var window = new SettingsWindow(_settings, StartupRegistration.IsEnabled(), canChangeStartup);
+
+            if (window.ShowDialog() != true || window.Result is not { } result)
+            {
+                return;
+            }
+
+            _settings = result;
+            _options!.Apply(result);
+            _toolbar.SetCollapseDelay(ToolbarDocking.CollapseDelay(result.ToolbarCollapseSeconds));
+            _pendingHotkeys = new HotkeyMap(result.Hotkeys);
+
+            if (canChangeStartup)
+            {
+                StartupRegistration.Set(window.StartupEnabled);
+            }
+
+            SaveSettings();
+        });
+
+        // Les raccourcis se réenregistrent une fois la fenêtre fermée et la suspension levée.
+        if (_pendingHotkeys is { } hotkeys)
+        {
+            _pendingHotkeys = null;
+            _toolbar.SetHotkeys(hotkeys);
+        }
     }
 
     private async Task CheckForUpdateAsync(bool offerImmediately)
@@ -169,6 +304,7 @@ public partial class App : Application
             ToolbarDock = _toolbar.Dock,
             ToolbarDockMonitor = _toolbar.DockMonitor,
         };
+        _overlays!.Refresh();
         RestartSaveTimer();
     }
 

@@ -1,4 +1,7 @@
 using System.Runtime.InteropServices;
+using System.Windows;
+using System.Windows.Interop;
+using System.Windows.Media.Imaging;
 using LegendaryPen.Core;
 
 namespace LegendaryPen.App;
@@ -23,6 +26,8 @@ internal static partial class Win32
     public const uint VkY = 0x59;
     public const uint VkZ = 0x5A;
 
+    private const uint SrcCopy = 0x00CC0020;
+    private const uint CaptureBlt = 0x40000000;
     private const int VkShift = 0x10;
     private const int GwlExStyle = -20;
     private const long WsExTransparent = 0x00000020;
@@ -107,6 +112,34 @@ internal static partial class Win32
         SetWindowPos(window, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
     }
 
+    /// <summary>Copie un écran en pixels physiques, fenêtres transparentes comprises.</summary>
+    public static BitmapSource CaptureScreen(PixelRect bounds)
+    {
+        var screen = GetDC(IntPtr.Zero);
+        var memory = CreateCompatibleDC(screen);
+        var bitmap = CreateCompatibleBitmap(screen, bounds.Width, bounds.Height);
+        var previous = SelectObject(memory, bitmap);
+
+        try
+        {
+            if (!BitBlt(memory, 0, 0, bounds.Width, bounds.Height, screen, bounds.Left, bounds.Top, SrcCopy | CaptureBlt))
+            {
+                throw new InvalidOperationException("Windows a refusé la capture de l'écran.");
+            }
+
+            var image = Imaging.CreateBitmapSourceFromHBitmap(bitmap, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+            image.Freeze();
+            return image;
+        }
+        finally
+        {
+            SelectObject(memory, previous);
+            DeleteObject(bitmap);
+            DeleteDC(memory);
+            ReleaseDC(IntPtr.Zero, screen);
+        }
+    }
+
     public static PixelPoint GetPointer()
     {
         GetCursorPos(out var point);
@@ -159,6 +192,33 @@ internal static partial class Win32
     {
         SetWindowLongPtrW(window, GwlExStyle, new IntPtr(style));
     }
+
+    [LibraryImport("user32.dll")]
+    private static partial IntPtr GetDC(IntPtr window);
+
+    [LibraryImport("user32.dll")]
+    private static partial int ReleaseDC(IntPtr window, IntPtr deviceContext);
+
+    [LibraryImport("gdi32.dll")]
+    private static partial IntPtr CreateCompatibleDC(IntPtr deviceContext);
+
+    [LibraryImport("gdi32.dll")]
+    private static partial IntPtr CreateCompatibleBitmap(IntPtr deviceContext, int width, int height);
+
+    [LibraryImport("gdi32.dll")]
+    private static partial IntPtr SelectObject(IntPtr deviceContext, IntPtr gdiObject);
+
+    [LibraryImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool DeleteObject(IntPtr gdiObject);
+
+    [LibraryImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool DeleteDC(IntPtr deviceContext);
+
+    [LibraryImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool BitBlt(IntPtr target, int x, int y, int width, int height, IntPtr source, int sourceX, int sourceY, uint operation);
 
     [LibraryImport("user32.dll")]
     private static partial short GetAsyncKeyState(int virtualKey);

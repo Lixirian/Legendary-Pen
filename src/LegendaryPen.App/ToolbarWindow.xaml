@@ -307,6 +307,10 @@
                           AutomationProperties.Name="Masquer les annotations"
                           Checked="OnHideToggled"
                           Unchecked="OnHideToggled" />
+            <Button x:Name="CaptureButton"
+                    Content="&#xE722;"
+                    AutomationProperties.Name="Capture d'écran"
+                    Click="OnCaptureClicked" />
             <Button x:Name="OrientationButton"
                     Content="&#xE7AD;"
                     AutomationProperties.Name="Changer l'orientation de la barre"
@@ -314,6 +318,10 @@
 
             <Border Tag="Separator" Background="#44FFFFFF" />
 
+            <Button Content="&#xE713;"
+                    ToolTip="Réglages"
+                    AutomationProperties.Name="Réglages"
+                    Click="OnSettingsClicked" />
             <Button x:Name="UpdateButton"
                     Visibility="Collapsed"
                     ToolTip="Mise à jour disponible"

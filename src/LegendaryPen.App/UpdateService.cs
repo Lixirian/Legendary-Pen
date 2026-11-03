@@ -18,18 +18,18 @@ public sealed class UpdateService
         "Legendary Pen",
         "updates");
 
+    public static string InstallDirectory { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Programs",
+        "Legendary Pen");
+
     public static Version CurrentVersion { get; } =
         Assembly.GetEntryAssembly()?.GetName().Version ?? new Version(0, 0);
 
     /// <summary>Faux dans un dossier de développement ou si aucune clé publique n'est inscrite.</summary>
     public static bool IsEnabled =>
         UpdateConfig.ReleasePublicKey.Length > 0 &&
-        InstallLocation.IsInstalledCopy(
-            Environment.ProcessPath,
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Programs",
-                "Legendary Pen"));
+        InstallLocation.IsInstalledCopy(Environment.ProcessPath, InstallDirectory);
 
     /// <summary>Renvoie la mise à jour disponible, ou null. Une erreur réseau est retentée au contrôle suivant.</summary>
     public async Task<UpdateManifest?> CheckAsync()

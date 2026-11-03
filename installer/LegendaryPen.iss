@@ -42,6 +42,10 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 Source: "{#PublishDir}\LegendaryPen.exe"; DestDir: "{app}"; Flags: ignoreversion
 
+[Registry]
+; Le démarrage automatique ne doit pas survivre à la désinstallation.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "Legendary Pen"; Flags: dontcreatekey uninsdeletevalue
+
 [UninstallDelete]
 Type: filesandordirs; Name: "{localappdata}\Legendary Pen"
 

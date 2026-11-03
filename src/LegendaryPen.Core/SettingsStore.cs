@@ -18,6 +18,18 @@ public sealed record AppSettings
 
     public double? ToolbarCollapseSeconds { get; init; }
 
+    public bool WheelChangesSize { get; init; } = true;
+
+    public bool PressureEnabled { get; init; } = true;
+
+    public bool BoardOnToolbarScreenOnly { get; init; }
+
+    public CaptureDestination CaptureDestination { get; init; }
+
+    public string? CaptureFolder { get; init; }
+
+    public IReadOnlyDictionary<string, HotkeyBinding>? Hotkeys { get; init; }
+
     public bool FadingEnabled { get; init; }
 
     public double? FadeDelaySeconds { get; init; }

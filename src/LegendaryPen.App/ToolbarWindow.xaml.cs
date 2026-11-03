@@ -14,9 +14,6 @@ namespace LegendaryPen.App;
 
 public partial class ToolbarWindow : Window
 {
-    private const int ToggleModeHotKey = 1;
-    private const int FirstDrawHotKey = 2;
-
     private const double ToolButtonSpan = 44;
     private const double GripThickness = 20;
     private const double SeparatorLength = 24;
@@ -35,11 +32,14 @@ public partial class ToolbarWindow : Window
     private readonly PixelPoint? _savedPosition;
     private readonly List<ToggleButton> _swatches = [];
     private readonly DispatcherTimer _collapseTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
-    private readonly TimeSpan _collapseDelay;
+    private readonly Dictionary<HotkeyAction, Action> _hotkeyActions;
     private readonly ToggleButton[] _sizeButtons;
     private readonly ToggleButton[] _toolButtons;
-    private readonly (uint Modifiers, uint Key, string Label, Action Run)[] _drawHotKeys;
 
+    private TimeSpan _collapseDelay;
+    private HotkeyMap _hotkeys;
+    private bool _globalHotKeysRegistered;
+    private bool _hotKeysSuspended;
     private IReadOnlyList<MonitorArea> _monitors;
     private UpdateManifest? _availableUpdate;
     private IntPtr _handle;
@@ -63,8 +63,10 @@ public partial class ToolbarWindow : Window
         bool vertical,
         ToolbarDock dock,
         string? dockMonitor,
-        TimeSpan collapseDelay)
+        TimeSpan collapseDelay,
+        HotkeyMap hotkeys)
     {
+        _hotkeys = hotkeys;
         IsVertical = vertical;
         Dock = dock;
         DockMonitor = dockMonitor;
@@ -81,7 +83,8 @@ public partial class ToolbarWindow : Window
 
         _sizeButtons = [SmallSizeButton, MediumSizeButton, LargeSizeButton];
         _toolButtons = [PenButton, HighlighterButton, EraserButton, LineButton, ArrowButton, RectangleButton, EllipseButton, TextButton];
-        _drawHotKeys = CreateDrawHotKeys();
+        _hotkeyActions = CreateHotkeyActions();
+        ApplyHotkeyTooltips();
         CreateSwatches();
         ExpandIcon.Source = LoadApplicationIcon();
         ApplyOrientation();
@@ -116,6 +119,60 @@ public partial class ToolbarWindow : Window
     public event Action? PositionChanged;
 
     public event Action? OrientationChanged;
+
+    public event Action? CaptureRequested;
+
+    public event Action? SettingsRequested;
+
+    /// <summary>Écran où se trouve la barre, pour un tableau limité à un écran.</summary>
+    public string? CurrentMonitorName => _handle == IntPtr.Zero ? null : FindBarMonitor().DeviceName;
+
+    public IReadOnlyList<MonitorArea> Monitors => _monitors;
+
+    public void SetCollapseDelay(TimeSpan delay) => _collapseDelay = delay;
+
+    public void SetHotkeys(HotkeyMap hotkeys)
+    {
+        SetDrawHotKeys(false);
+        SetGlobalHotKeys(false);
+
+        _hotkeys = hotkeys;
+        _hotKeyFailureReported = false;
+        ApplyHotkeyTooltips();
+
+        SetGlobalHotKeys(!_hotKeysSuspended);
+        Refresh();
+    }
+
+    public void ToggleBarVisibility()
+    {
+        if (IsVisible)
+        {
+            Hide();
+        }
+        else
+        {
+            Show();
+            ExpandAndReveal();
+        }
+    }
+
+    /// <summary>Ouvre une fenêtre qui a besoin de tout le clavier : aucun raccourci ne doit l'intercepter.</summary>
+    public void RunExclusive(Action action)
+    {
+        if (_dialogOpen)
+        {
+            return;
+        }
+
+        _hotKeysSuspended = true;
+        SetGlobalHotKeys(false);
+
+        RunDialog(action);
+
+        _hotKeysSuspended = false;
+        SetGlobalHotKeys(true);
+    }
 
     /// <summary>Remet la barre au premier plan et sur un écran disponible.</summary>
     public void Reveal()
@@ -170,7 +227,7 @@ public partial class ToolbarWindow : Window
         Win32.MakeNonActivatingAppWindow(_handle);
         HwndSource.FromHwnd(_handle)!.AddHook(OnWindowMessage);
 
-        Register(ToggleModeHotKey, Win32.ModControl | Win32.ModShift, Win32.VkSpace, "Ctrl+Maj+Espace");
+        SetGlobalHotKeys(true);
         UpdateSizeLimit();
         Refresh();
     }
@@ -178,7 +235,7 @@ public partial class ToolbarWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _collapseTimer.Stop();
-        Win32.UnregisterGlobalHotKey(_handle, ToggleModeHotKey);
+        SetGlobalHotKeys(false);
         SetDrawHotKeys(false);
         base.OnClosed(e);
 
@@ -309,7 +366,7 @@ public partial class ToolbarWindow : Window
 
     private void OnCollapseTimerTick(object? sender, EventArgs e)
     {
-        var shouldCollapse = ToolbarDocking.ShouldCollapse(
+        var shouldCollapse = IsVisible && ToolbarDocking.ShouldCollapse(
             Dock,
             DateTime.UtcNow - _lastInteraction,
             _collapseDelay,
@@ -547,57 +604,106 @@ public partial class ToolbarWindow : Window
         }
 
         _drawHotKeysRegistered = enabled;
+        RegisterHotkeys(isGlobal: false, enabled);
+    }
 
-        for (var i = 0; i < _drawHotKeys.Length; i++)
+    private void SetGlobalHotKeys(bool enabled)
+    {
+        if (enabled == _globalHotKeysRegistered)
         {
-            if (enabled)
+            return;
+        }
+
+        _globalHotKeysRegistered = enabled;
+        RegisterHotkeys(isGlobal: true, enabled);
+    }
+
+    private void RegisterHotkeys(bool isGlobal, bool enabled)
+    {
+        foreach (var definition in HotkeyCatalog.All.Where(candidate => candidate.IsGlobal == isGlobal))
+        {
+            var id = HotkeyId(definition.Action);
+
+            if (!enabled)
             {
-                var hotKey = _drawHotKeys[i];
-                Register(FirstDrawHotKey + i, hotKey.Modifiers, hotKey.Key, hotKey.Label);
+                Win32.UnregisterGlobalHotKey(_handle, id);
             }
-            else
+            else if (_hotkeys[definition.Action] is { IsNone: false } binding)
             {
-                Win32.UnregisterGlobalHotKey(_handle, FirstDrawHotKey + i);
+                Register(id, binding);
             }
         }
     }
 
-    private (uint Modifiers, uint Key, string Label, Action Run)[] CreateDrawHotKeys()
-    {
-        (uint, uint, string, Action) Letter(char letter, Action run) => (0, letter, letter.ToString(), run);
-        (uint, uint, string, Action) Tool(char letter, DrawingTool tool) => Letter(letter, () => _state.SelectTool(tool));
+    // L'identifiant 0 n'est pas accepté par Windows.
+    private static int HotkeyId(HotkeyAction action) => (int)action + 1;
 
-        return
-        [
-            (0, Win32.VkEscape, "Échap", _state.EnterMouse),
-            (Win32.ModControl, Win32.VkZ, "Ctrl+Z", () => _histories.Current.Undo()),
-            (Win32.ModControl, Win32.VkY, "Ctrl+Y", () => _histories.Current.Redo()),
-            (0, Win32.VkDelete, "Suppr", _overlays.ClearAll),
-            Tool('P', DrawingTool.Pen),
-            Tool('H', DrawingTool.Highlighter),
-            Tool('E', DrawingTool.Eraser),
-            Tool('L', DrawingTool.Line),
-            Tool('A', DrawingTool.Arrow),
-            Tool('R', DrawingTool.Rectangle),
-            Tool('O', DrawingTool.Ellipse),
-            Tool('T', DrawingTool.Text),
-            Letter('W', () => _state.ToggleBoard(BoardBackground.Whiteboard)),
-            Letter('B', () => _state.ToggleBoard(BoardBackground.Blackboard)),
-            Letter('F', _state.ToggleFading),
-            Letter('V', _state.ToggleAnnotations),
-        ];
+    private Dictionary<HotkeyAction, Action> CreateHotkeyActions()
+    {
+        Action Tool(DrawingTool tool) => () => _state.SelectTool(tool);
+
+        return new Dictionary<HotkeyAction, Action>
+        {
+            [HotkeyAction.ToggleMode] = _state.ToggleMode,
+            [HotkeyAction.ToggleToolbar] = ToggleBarVisibility,
+            [HotkeyAction.ExitDraw] = _state.EnterMouse,
+            [HotkeyAction.Undo] = () => _histories.Current.Undo(),
+            [HotkeyAction.Redo] = () => _histories.Current.Redo(),
+            [HotkeyAction.ClearAll] = _overlays.ClearAll,
+            [HotkeyAction.Pen] = Tool(DrawingTool.Pen),
+            [HotkeyAction.Highlighter] = Tool(DrawingTool.Highlighter),
+            [HotkeyAction.Eraser] = Tool(DrawingTool.Eraser),
+            [HotkeyAction.Line] = Tool(DrawingTool.Line),
+            [HotkeyAction.Arrow] = Tool(DrawingTool.Arrow),
+            [HotkeyAction.Rectangle] = Tool(DrawingTool.Rectangle),
+            [HotkeyAction.Ellipse] = Tool(DrawingTool.Ellipse),
+            [HotkeyAction.Text] = Tool(DrawingTool.Text),
+            [HotkeyAction.Whiteboard] = () => _state.ToggleBoard(BoardBackground.Whiteboard),
+            [HotkeyAction.Blackboard] = () => _state.ToggleBoard(BoardBackground.Blackboard),
+            [HotkeyAction.Fading] = _state.ToggleFading,
+            [HotkeyAction.HideAnnotations] = _state.ToggleAnnotations,
+            [HotkeyAction.Capture] = () => CaptureRequested?.Invoke(),
+        };
     }
 
-    private void Register(int id, uint modifiers, uint virtualKey, string label)
+    private void ApplyHotkeyTooltips()
     {
-        if (Win32.RegisterGlobalHotKey(_handle, id, modifiers, virtualKey) || _hotKeyFailureReported)
+        void Tip(FrameworkElement element, string text, HotkeyAction action, string? hint = null)
+        {
+            var shortcut = _hotkeys[action];
+            var label = shortcut.IsNone ? text : $"{text} ({shortcut.Format()})";
+            element.ToolTip = hint is null ? label : $"{label}. {hint}";
+        }
+
+        Tip(MouseButton, "Mode Souris", HotkeyAction.ExitDraw);
+        Tip(PenButton, "Stylo", HotkeyAction.Pen);
+        Tip(HighlighterButton, "Surligneur", HotkeyAction.Highlighter);
+        Tip(EraserButton, "Gomme", HotkeyAction.Eraser);
+        Tip(LineButton, "Ligne", HotkeyAction.Line, "Maj : par pas de 45°");
+        Tip(ArrowButton, "Flèche", HotkeyAction.Arrow, "Maj : par pas de 45°");
+        Tip(RectangleButton, "Rectangle", HotkeyAction.Rectangle, "Maj : carré");
+        Tip(EllipseButton, "Ellipse", HotkeyAction.Ellipse, "Maj : cercle");
+        Tip(TextButton, "Texte", HotkeyAction.Text, "Échap ou clic ailleurs : valider");
+        Tip(FadeButton, "Encre évanescente", HotkeyAction.Fading);
+        Tip(WhiteboardButton, "Tableau blanc", HotkeyAction.Whiteboard);
+        Tip(BlackboardButton, "Tableau noir", HotkeyAction.Blackboard);
+        Tip(UndoButton, "Annuler", HotkeyAction.Undo);
+        Tip(RedoButton, "Rétablir", HotkeyAction.Redo);
+        Tip(ClearButton, "Tout effacer", HotkeyAction.ClearAll);
+        Tip(HideButton, "Masquer les annotations", HotkeyAction.HideAnnotations);
+        Tip(CaptureButton, "Capture d'écran", HotkeyAction.Capture);
+    }
+
+    private void Register(int id, HotkeyBinding binding)
+    {
+        if (Win32.RegisterGlobalHotKey(_handle, id, binding.Modifiers, binding.Key) || _hotKeyFailureReported)
         {
             return;
         }
 
         _hotKeyFailureReported = true;
         MessageBox.Show(
-            $"Le raccourci {label} est déjà utilisé par une autre application. Les boutons de la barre restent disponibles.",
+            $"Le raccourci {binding.Format()} est déjà utilisé par une autre application. Les boutons de la barre restent disponibles, et les réglages permettent d'en choisir un autre.",
             "Legendary Pen",
             MessageBoxButton.OK,
             MessageBoxImage.Warning);
@@ -620,15 +726,11 @@ public partial class ToolbarWindow : Window
 
         handled = true;
 
-        var id = wParam.ToInt32();
+        var action = (HotkeyAction)(wParam.ToInt32() - 1);
 
-        if (id == ToggleModeHotKey)
+        if (_hotkeyActions.TryGetValue(action, out var run))
         {
-            _state.ToggleMode();
-        }
-        else if (id >= FirstDrawHotKey && id < FirstDrawHotKey + _drawHotKeys.Length)
-        {
-            _drawHotKeys[id - FirstDrawHotKey].Run();
+            run();
         }
 
         return IntPtr.Zero;
@@ -748,6 +850,10 @@ public partial class ToolbarWindow : Window
             _state.ToggleAnnotations();
         }
     }
+
+    private void OnCaptureClicked(object sender, RoutedEventArgs e) => CaptureRequested?.Invoke();
+
+    private void OnSettingsClicked(object sender, RoutedEventArgs e) => SettingsRequested?.Invoke();
 
     private void OnQuitClicked(object sender, RoutedEventArgs e) => Application.Current.Shutdown();
 }
