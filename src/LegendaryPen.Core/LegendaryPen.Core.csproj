@@ -6,4 +6,9 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Verrouillé : les versions suivantes de PDFsharp passent sous AGPL-3.0. -->
+    <PackageReference Include="PDFsharp" Version="[6.2.4]" />
+  </ItemGroup>
+
 </Project>

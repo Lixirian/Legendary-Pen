@@ -311,6 +311,11 @@
                     Content="&#xE722;"
                     AutomationProperties.Name="Capture d'écran"
                     Click="OnCaptureClicked" />
+            <Button x:Name="SignPdfButton"
+                    Content="&#xE8A5;"
+                    ToolTip="Signer un PDF"
+                    AutomationProperties.Name="Signer un PDF"
+                    Click="OnSignPdfClicked" />
             <Button x:Name="OrientationButton"
                     Content="&#xE7AD;"
                     AutomationProperties.Name="Changer l'orientation de la barre"

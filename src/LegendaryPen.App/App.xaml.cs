@@ -72,6 +72,7 @@ public partial class App : Application
         _overlays.BoardMonitor = () => _toolbar.CurrentMonitorName;
         _toolbar.CaptureRequested += RequestCapture;
         _toolbar.SettingsRequested += RequestSettings;
+        _toolbar.SignPdfRequested += RequestSignPdf;
         _toolbar.PositionChanged += OnToolbarMoved;
         _toolbar.OrientationChanged += () =>
         {
@@ -86,7 +87,7 @@ public partial class App : Application
         _toolbar.Show();
         _overlays.KeepBelowToolbar(new System.Windows.Interop.WindowInteropHelper(_toolbar).Handle);
 
-        _tray = new TrayIcon(_toolbar.ToggleBarVisibility, RequestCapture, RequestSettings, Shutdown);
+        _tray = new TrayIcon(_toolbar.ToggleBarVisibility, RequestCapture, RequestSignPdf, RequestSettings, Shutdown);
 
         _pen.Changed += RestartSaveTimer;
         _state.Changed += () =>
@@ -136,6 +137,8 @@ public partial class App : Application
     private void RequestCapture() => Dispatcher.BeginInvoke(RunCapture);
 
     private void RequestSettings() => Dispatcher.BeginInvoke(OpenSettings);
+
+    private void RequestSignPdf() => Dispatcher.BeginInvoke(OpenPdfSigning);
 
     private void RunCapture()
     {
@@ -216,6 +219,15 @@ public partial class App : Application
         {
             _tray!.Notify($"Capture enregistrée : {Path.GetFileName(path)}", () => CaptureDelivery.ShowInExplorer(path));
         }
+    }
+
+    private void OpenPdfSigning()
+    {
+        _overlays!.CommitText();
+
+        var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Legendary Pen");
+
+        _toolbar!.RunExclusive(() => new PdfSignWindow(new SignatureStore(Path.Combine(folder, "signature.json"))).ShowDialog());
     }
 
     private void OpenSettings()

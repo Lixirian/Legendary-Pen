@@ -124,6 +124,8 @@ public partial class ToolbarWindow : Window
 
     public event Action? SettingsRequested;
 
+    public event Action? SignPdfRequested;
+
     /// <summary>Écran où se trouve la barre, pour un tableau limité à un écran.</summary>
     public string? CurrentMonitorName => _handle == IntPtr.Zero ? null : FindBarMonitor().DeviceName;
 
@@ -848,6 +850,8 @@ public partial class ToolbarWindow : Window
     }
 
     private void OnCaptureClicked(object sender, RoutedEventArgs e) => CaptureRequested?.Invoke();
+
+    private void OnSignPdfClicked(object sender, RoutedEventArgs e) => SignPdfRequested?.Invoke();
 
     private void OnSettingsClicked(object sender, RoutedEventArgs e) => SettingsRequested?.Invoke();
 

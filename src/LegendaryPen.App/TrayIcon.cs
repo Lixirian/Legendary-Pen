@@ -9,7 +9,7 @@ internal sealed class TrayIcon : IDisposable
     private readonly Forms.NotifyIcon _icon;
     private Action? _notificationClicked;
 
-    public TrayIcon(Action toggleToolbar, Action capture, Action settings, Action quit)
+    public TrayIcon(Action toggleToolbar, Action capture, Action signPdf, Action settings, Action quit)
     {
         var menu = new Forms.ContextMenuStrip
         {
@@ -21,6 +21,7 @@ internal sealed class TrayIcon : IDisposable
         };
         menu.Items.Add("Afficher ou masquer la barre", null, (_, _) => toggleToolbar());
         menu.Items.Add("Capture d'écran", null, (_, _) => capture());
+        menu.Items.Add("Signer un PDF", null, (_, _) => signPdf());
         menu.Items.Add("Réglages", null, (_, _) => settings());
         menu.Items.Add(new Forms.ToolStripSeparator { BackColor = DarkMenuColors.Surface, ForeColor = DarkMenuColors.Line });
         menu.Items.Add("Quitter", null, (_, _) => quit());

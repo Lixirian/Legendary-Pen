@@ -301,6 +301,66 @@ public class HighlightSnapperTests
         Assert.Equal(secondEnd, span.Value.Right);
     }
 
+    private static void Stem(byte[] pixels, int imageWidth, int left, int right, int top, int bottom)
+    {
+        for (var y = top; y < bottom; y++)
+        {
+            Array.Fill(pixels, Black, (y * imageWidth) + left, right - left);
+        }
+    }
+
+    [Fact]
+    public void Letters_of_a_selected_word_outside_the_stroke_are_covered()
+    {
+        var pixels = Blank(800, 120, White);
+        Word(pixels, 800, 240, 400, 50, 70, Black);
+        Stem(pixels, 800, 390, 394, 70, 76);
+        Stem(pixels, 800, 245, 249, 42, 50);
+
+        var span = HighlightSnapper.FindText(new GrayImage(800, 120, pixels), 260, 360, 60);
+
+        Assert.Equal(42, span!.Value.Top);
+        Assert.Equal(76, span.Value.Bottom);
+    }
+
+    [Fact]
+    public void A_single_thin_descender_under_a_long_stroke_is_covered()
+    {
+        var pixels = Blank(800, 120, White);
+        Word(pixels, 800, 100, 700, 50, 70, Black);
+        Stem(pixels, 800, 300, 302, 70, 76);
+
+        var span = HighlightSnapper.FindText(new GrayImage(800, 120, pixels), 110, 690, 60);
+
+        Assert.Equal(76, span!.Value.Bottom);
+    }
+
+    [Fact]
+    public void The_line_below_stays_out_when_a_blank_row_separates_it()
+    {
+        var pixels = Blank(800, 120, White);
+        Word(pixels, 800, 100, 400, 50, 70, Black);
+        Stem(pixels, 800, 200, 204, 70, 74);
+        Word(pixels, 800, 100, 400, 75, 95, Black);
+
+        var span = HighlightSnapper.FindText(new GrayImage(800, 120, pixels), 110, 390, 60);
+
+        Assert.Equal(50, span!.Value.Top);
+        Assert.Equal(74, span.Value.Bottom);
+    }
+
+    [Fact]
+    public void A_long_vertical_rule_touching_a_word_does_not_stretch_the_line()
+    {
+        var pixels = Blank(800, 120, White);
+        Word(pixels, 800, 100, 400, 50, 70, Black);
+        Stem(pixels, 800, 200, 202, 70, 118);
+
+        var span = HighlightSnapper.FindText(new GrayImage(800, 120, pixels), 110, 390, 60);
+
+        Assert.Equal(70, span!.Value.Bottom);
+    }
+
     [Fact]
     public void Right_to_left_coordinates_are_accepted()
     {

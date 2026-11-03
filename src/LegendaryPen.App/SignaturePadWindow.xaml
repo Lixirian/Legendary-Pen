@@ -1,0 +1,36 @@
+<Window x:Class="LegendaryPen.App.SignaturePadWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Style="{StaticResource ThemedWindow}"
+        Title="Tracer une signature"
+        Width="620"
+        SizeToContent="Height"
+        ShowInTaskbar="False"
+        Topmost="True"
+        WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="18,8,18,18">
+        <TextBlock Text="Signe dans le cadre, à la souris ou au stylet." Foreground="{StaticResource MutedBrush}" />
+        <Border Margin="0,10,0,0" BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
+            <InkCanvas x:Name="Pad"
+                       Height="220"
+                       Background="White"
+                       Cursor="Pen"
+                       AutomationProperties.Name="Zone de signature" />
+        </Border>
+        <CheckBox x:Name="RememberBox"
+                  Margin="0,12,0,0"
+                  Content="Mémoriser cette signature sur cet ordinateur" />
+        <DockPanel Margin="0,16,0,0" LastChildFill="False">
+            <Button Content="Effacer" MinWidth="90" DockPanel.Dock="Left" Click="OnClearClicked" />
+            <Button x:Name="UseButton"
+                    Content="Poser sur la page"
+                    MinWidth="130"
+                    Margin="8,0,0,0"
+                    DockPanel.Dock="Right"
+                    IsDefault="True"
+                    IsEnabled="False"
+                    Click="OnUseClicked" />
+            <Button Content="Annuler" MinWidth="90" DockPanel.Dock="Right" IsCancel="True" />
+        </DockPanel>
+    </StackPanel>
+</Window>

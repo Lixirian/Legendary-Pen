@@ -65,7 +65,8 @@ public static class HighlightSnapper
     private const double MaxInkDensity = 0.85;
     private const int MinLineHeight = 6;
     private const int MaxLineHeight = 120;
-    private const double MinRowInkShare = 0.01;
+    private const double MinRowInkShare = 0.015;
+    private const double MaxLetterOverhangPerHeight = 0.8;
     private const double MinWordGapPerHeight = 0.2;
     private const double MaxWordGapPerHeight = 0.5;
     private const double DefaultWordGapPerHeight = 0.35;
@@ -177,7 +178,46 @@ public static class HighlightSnapper
         var covered = touched.Where(WellCovered).ToList();
         var selected = covered.Count > 0 ? covered : touched;
 
-        return new TextSpan(selected[0].Left, top, selected[^1].Right, bottom);
+        var (fittedTop, fittedBottom) = FitRowsToLetters(IsInk, selected[0].Left, selected[^1].Right, top, bottom, image.Height);
+
+        return new TextSpan(selected[0].Left, fittedTop, selected[^1].Right, fittedBottom);
+    }
+
+    /// <summary>
+    /// Étend la ligne aux jambages, hampes et accents des mots retenus, même hors du trait. Un élément
+    /// qui dépasse trop, comme un filet de tableau, ne fait pas partie des lettres.
+    /// </summary>
+    private static (int Top, int Bottom) FitRowsToLetters(Func<int, int, bool> isInk, int left, int right, int top, int bottom, int imageHeight)
+    {
+        var maxOverhang = (bottom - top) * MaxLetterOverhangPerHeight;
+
+        bool RowHasLetter(int y)
+        {
+            for (var x = left; x < right; x++)
+            {
+                if (isInk(x, y))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        var fittedTop = top;
+        var fittedBottom = bottom;
+
+        while (fittedTop > 0 && RowHasLetter(fittedTop - 1))
+        {
+            fittedTop--;
+        }
+
+        while (fittedBottom < imageHeight && RowHasLetter(fittedBottom))
+        {
+            fittedBottom++;
+        }
+
+        return (top - fittedTop > maxOverhang ? top : fittedTop, fittedBottom - bottom > maxOverhang ? bottom : fittedBottom);
     }
 
     private static int? FindBackground(GrayImage image)

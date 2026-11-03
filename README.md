@@ -33,6 +33,12 @@ Tous les raccourcis se modifient dans les réglages. Seuls `Ctrl+Maj+Espace` et 
 
 Au relâchement, le surligneur devient un trait droit et se cale sur la ligne de texte située dessous. L'analyse de l'écran reste locale ; rien n'est enregistré ni envoyé. L'option se désactive dans les réglages.
 
+## Signer un PDF
+
+Le bouton « Signer un PDF » de la barre, aussi présent dans le menu de l'icône près de l'horloge, ouvre un document. On y trace sa signature ou on pose celle qu'on a mémorisée, on la déplace et on la redimensionne, puis on enregistre une copie. Le fichier d'origine n'est jamais modifié ; toutes les pages et leur texte sélectionnable sont conservés.
+
+Cette signature est visuelle : elle n'a pas la valeur d'une signature électronique certifiée. Une signature mémorisée reste uniquement sur l'ordinateur, sans chiffrement, et le bouton « Oublier ma signature » la supprime. Les PDF protégés ou interdisant la modification sont refusés.
+
 ## Mises à jour
 
 L'application vérifie la présence d'une nouvelle version au lancement, puis toutes les 10 minutes. Au lancement, elle propose de l'installer ; ensuite, une pastille apparaît dans la barre d'outils.
@@ -63,3 +69,5 @@ Le chemin de la clé de signature se trouve dans `signing-key.local.txt`, un fic
 ## Licence
 
 Tous droits réservés.
+
+Les composants tiers et leurs licences sont listés dans `THIRD-PARTY-NOTICES.txt`.
