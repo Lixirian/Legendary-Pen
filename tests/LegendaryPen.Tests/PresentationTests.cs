@@ -101,9 +101,69 @@ public class PresentationTests
         var bottomRight = PresentationGeometry.MagnifierSource(new PixelPoint(1919, 1079), 320, 2, Screen);
         var negative = PresentationGeometry.MagnifierSource(new PixelPoint(-1, 1079), 320, 2, NegativeScreen);
 
-        Assert.Equal(new PixelRect(0, 0, 160, 160), topLeft);
+        Assert.Equal(new PixelRect(2, 2, 162, 162), topLeft);
         Assert.Equal(new PixelRect(1760, 920, 1920, 1080), bottomRight);
         Assert.Equal(new PixelRect(-160, 920, 0, 1080), negative);
+    }
+
+    [Theory]
+    [InlineData(960, 540)]
+    [InlineData(5, 5)]
+    [InlineData(0, 0)]
+    [InlineData(1919, 1079)]
+    [InlineData(0, 540)]
+    [InlineData(1919, 540)]
+    [InlineData(960, 0)]
+    [InlineData(960, 80)]
+    [InlineData(960, 1079)]
+    [InlineData(159, 921)]
+    [InlineData(161, 919)]
+    public void The_point_under_the_cursor_is_the_point_shown(int x, int y)
+    {
+        AssertPointerIsShown(new PixelPoint(x, y), Screen);
+    }
+
+    [Theory]
+    [InlineData(-1920, 0)]
+    [InlineData(-1, 1079)]
+    [InlineData(-960, 80)]
+    [InlineData(-1, 540)]
+    public void The_point_under_the_cursor_is_the_point_shown_on_a_negative_screen(int x, int y)
+    {
+        AssertPointerIsShown(new PixelPoint(x, y), NegativeScreen);
+    }
+
+    [Theory]
+    [InlineData(100, 100, false)]
+    [InlineData(199, 299, false)]
+    [InlineData(200, 100, true)]
+    [InlineData(100, 300, true)]
+    [InlineData(99, 100, true)]
+    [InlineData(450, 20, false)]
+    [InlineData(500, 20, true)]
+    [InlineData(1000, 1000, true)]
+    public void A_press_closes_the_menu_only_outside_the_menu_and_its_button(int x, int y, bool closes)
+    {
+        var menu = new PixelRect(100, 100, 200, 300);
+        var button = new PixelRect(400, 0, 500, 40);
+
+        Assert.Equal(closes, PresentationGeometry.PressClosesMenu(new PixelPoint(x, y), menu, button));
+    }
+
+    private static void AssertPointerIsShown(PixelPoint pointer, PixelRect monitor)
+    {
+        const int Diameter = 320;
+        const double Zoom = 2;
+
+        var box = PresentationGeometry.MagnifierWindow(pointer, Diameter, monitor);
+        var source = PresentationGeometry.MagnifierSource(pointer, Diameter, Zoom, monitor);
+
+        Assert.Equal(160, source.Width);
+        Assert.Equal(160, source.Height);
+        Assert.InRange(source.Left, monitor.Left, monitor.Right - source.Width);
+        Assert.InRange(source.Top, monitor.Top, monitor.Bottom - source.Height);
+        Assert.InRange(source.Left + ((pointer.X - box.Left) / Zoom), pointer.X - 1, pointer.X + 1);
+        Assert.InRange(source.Top + ((pointer.Y - box.Top) / Zoom), pointer.Y - 1, pointer.Y + 1);
     }
 
     [Fact]

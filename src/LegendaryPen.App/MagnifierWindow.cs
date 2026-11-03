@@ -8,7 +8,8 @@ namespace LegendaryPen.App;
 /// Loupe ronde fondée sur le contrôle de Magnification.dll, visible en partage d'écran et sans effet miroir (PR-3).
 /// Tout ce qui touche à Magnification.dll vit sur un fil dédié : un rafraîchissement peut coûter 30 ms, que le fil de
 /// l'interface doit garder pour le stylo. Les méthodes publiques s'appellent depuis le fil de l'interface.
-/// Toutes les positions sont en pixels physiques.
+/// Toutes les positions sont en pixels physiques, et le diamètre aussi : 320 pixels physiques, quelle que soit l'échelle
+/// de l'écran.
 /// </summary>
 internal sealed class MagnifierWindow : IDisposable
 {
@@ -18,6 +19,7 @@ internal sealed class MagnifierWindow : IDisposable
     private static readonly TimeSpan MinimumUpdateInterval = TimeSpan.FromMilliseconds(33);
     private static readonly TimeSpan HideTimeout = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan CaptureExclusionTimeout = TimeSpan.FromMilliseconds(200);
 
     private static bool _startAttempted;
 
@@ -26,12 +28,17 @@ internal sealed class MagnifierWindow : IDisposable
     private readonly Func<PixelPoint> _readPointer;
     private readonly AutoResetEvent _wake = new(false);
     private readonly ManualResetEventSlim _hidden = new(true);
+    private readonly ManualResetEventSlim _captureExclusionSettled = new(false);
     private readonly Thread _thread;
 
     // Remplacé en bloc par le fil de l'interface, seulement lu par le fil de la loupe.
     private volatile Request _request;
     private volatile bool _stopping;
     private volatile bool _finished;
+
+    // L'interface écrit ce qu'elle veut, le fil de la loupe s'y aligne à chaque cycle : une réponse tardive ne peut pas laisser la loupe exclue.
+    private volatile bool _captureExclusionWanted;
+    private volatile bool _captureExcluded;
     private bool _disposed;
 
     private MagnifierWindow(IReadOnlyList<MonitorArea> monitors, IntPtr below, Action onUnavailable, Func<PixelPoint> readPointer)
@@ -87,6 +94,43 @@ internal sealed class MagnifierWindow : IDisposable
         }
     }
 
+    /// <summary>
+    /// Retire la loupe des captures d'écran, sans la masquer à l'écran, jusqu'à <see cref="RestoreToCapture"/>. Seul le fil
+    /// de la loupe peut le faire sur sa fenêtre : la demande lui est transmise, et la réponse attendue au plus 200 ms.
+    /// Renvoie faux si la loupe peut encore figurer dans une capture.
+    /// </summary>
+    public bool ExcludeFromCapture()
+    {
+        // Une loupe cachée ou arrêtée ne figure dans aucune capture.
+        if (_disposed || _finished || (!_request.Visible && _hidden.IsSet))
+        {
+            return true;
+        }
+
+        _captureExclusionSettled.Reset();
+        _captureExclusionWanted = true;
+        _wake.Set();
+
+        if (_captureExclusionSettled.Wait(CaptureExclusionTimeout) && _captureExcluded)
+        {
+            return true;
+        }
+
+        Debug.WriteLine("La loupe n'a pas confirmé son retrait des captures.");
+        RestoreToCapture();
+        return _finished;
+    }
+
+    /// <summary>Rend la loupe aux captures d'écran, au prochain cycle de son fil : l'interface ne l'attend pas.</summary>
+    public void RestoreToCapture()
+    {
+        if (!_disposed && _captureExclusionWanted)
+        {
+            _captureExclusionWanted = false;
+            _wake.Set();
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -102,6 +146,7 @@ internal sealed class MagnifierWindow : IDisposable
         {
             _wake.Dispose();
             _hidden.Dispose();
+            _captureExclusionSettled.Dispose();
         }
         else
         {
@@ -156,6 +201,7 @@ internal sealed class MagnifierWindow : IDisposable
 
         _finished = true;
         _hidden.Set();
+        _captureExclusionSettled.Set();
 
         if (failed)
         {
@@ -172,6 +218,8 @@ internal sealed class MagnifierWindow : IDisposable
         {
             var start = Stopwatch.GetTimestamp();
             var request = _request;
+
+            AlignCaptureExclusion(host);
 
             if (request.Visible)
             {
@@ -196,6 +244,28 @@ internal sealed class MagnifierWindow : IDisposable
                     Win32.PumpMessages();
                 }
             }
+        }
+    }
+
+    private void AlignCaptureExclusion(IntPtr host)
+    {
+        var wanted = _captureExclusionWanted;
+
+        if (wanted != _captureExcluded)
+        {
+            if (Win32.SetExcludedFromCapture(host, wanted))
+            {
+                _captureExcluded = wanted;
+            }
+            else
+            {
+                Debug.WriteLine("Loupe : le changement d'exclusion des captures a été refusé.");
+            }
+        }
+
+        if (wanted)
+        {
+            _captureExclusionSettled.Set();
         }
     }
 

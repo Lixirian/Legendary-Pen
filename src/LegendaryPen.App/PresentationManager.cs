@@ -97,6 +97,23 @@ internal sealed class PresentationManager : IDisposable
         }
     }
 
+    /// <summary>
+    /// Retire le voile, les anneaux et la loupe des captures d'écran, sans les masquer à l'écran, jusqu'à ce que le résultat
+    /// soit libéré. Renvoie null, sans rien laisser exclu, si l'un d'eux n'a pas pu l'être : la capture serait fausse.
+    /// </summary>
+    public IDisposable? ExcludeFromCapture()
+    {
+        var exclusion = new CaptureExclusion(_magnifier);
+
+        if (_disposed || exclusion.TryApply(_windows.Values.Where(window => window.IsVisible)))
+        {
+            return exclusion;
+        }
+
+        exclusion.Dispose();
+        return null;
+    }
+
     /// <summary>Met les effets en pause, par exemple pendant une capture.</summary>
     public void Suspend()
     {
@@ -340,6 +357,36 @@ internal sealed class PresentationManager : IDisposable
         if (!_disposed && _state.MagnifierOn)
         {
             _state.ToggleMagnifier();
+        }
+    }
+
+    private sealed class CaptureExclusion(MagnifierWindow? magnifier) : IDisposable
+    {
+        private readonly List<PresentationWindow> _excluded = [];
+
+        public bool TryApply(IEnumerable<PresentationWindow> windows)
+        {
+            foreach (var window in windows)
+            {
+                if (!window.SetExcludedFromCapture(true))
+                {
+                    return false;
+                }
+
+                _excluded.Add(window);
+            }
+
+            return magnifier?.ExcludeFromCapture() != false;
+        }
+
+        public void Dispose()
+        {
+            foreach (var window in _excluded)
+            {
+                window.SetExcludedFromCapture(false);
+            }
+
+            magnifier?.RestoreToCapture();
         }
     }
 }

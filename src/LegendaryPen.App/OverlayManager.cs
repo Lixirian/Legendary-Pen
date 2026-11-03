@@ -31,6 +31,12 @@ public sealed class OverlayManager
     /// <summary>Indique l'écran de la barre d'outils, pour un tableau limité à un écran.</summary>
     public Func<string?> BoardMonitor { get; set; } = () => null;
 
+    /// <summary>
+    /// Retire des captures, le temps d'une lecture de l'écran, ce qui recouvre l'écran sans être du contenu : les effets de
+    /// présentation. Renvoie null si c'est impossible.
+    /// </summary>
+    public Func<IDisposable?> ExcludeEffectsFromCapture { get; set; } = () => new NothingToRestore();
+
     /// <summary>Vrai pendant la saisie d'un texte : le clavier doit rester libre.</summary>
     public bool IsEditingText { get; private set; }
 
@@ -114,7 +120,7 @@ public sealed class OverlayManager
     {
         OverlayWindow? overlay = null;
 
-        overlay = new OverlayWindow(monitor, _state, _pen, _histories, _options, () => BoardMonitor(), editing => OnTextEditing(overlay!, editing))
+        overlay = new OverlayWindow(monitor, _state, _pen, _histories, _options, () => BoardMonitor(), editing => OnTextEditing(overlay!, editing), () => ExcludeEffectsFromCapture())
         {
             ToolbarHandle = _toolbarHandle,
         };
@@ -155,6 +161,13 @@ public sealed class OverlayManager
             {
                 overlay.Apply();
             }
+        }
+    }
+
+    private sealed class NothingToRestore : IDisposable
+    {
+        public void Dispose()
+        {
         }
     }
 }

@@ -37,6 +37,7 @@ public partial class ToolbarWindow : Window
     private readonly ToggleButton[] _sizeButtons;
     private readonly ToggleButton[] _toolButtons;
     private readonly ContextMenu _presentationMenu = new();
+    private readonly DispatcherTimer _presentationMenuWatch = new() { Interval = TimeSpan.FromMilliseconds(50) };
     private readonly List<(MenuItem Item, HotkeyAction Action, Func<bool> IsOn)> _presentationItems = [];
 
     private TimeSpan _collapseDelay;
@@ -746,14 +747,24 @@ public partial class ToolbarWindow : Window
         Add(Loc.T("Effets de clic"), HotkeyAction.ClickEffects, _presentation.ToggleClickEffects, () => _presentation.ClickEffectsOn);
 
         // Le menu est une fenêtre à part : la barre ne doit pas se replier dessous, ni aussitôt après sa fermeture.
-        _presentationMenu.Closed += (_, _) => _lastInteraction = DateTime.UtcNow;
+        _presentationMenu.Closed += (_, _) =>
+        {
+            _presentationMenuWatch.Stop();
+            _lastInteraction = DateTime.UtcNow;
+        };
         _presentationMenu.Opened += (_, _) =>
         {
             foreach (var (item, _, isOn) in _presentationItems)
             {
                 item.IsChecked = isOn();
             }
+
+            // Oublie ce qui précède l'ouverture : le clic qui a ouvert le menu ne doit pas compter.
+            Win32.WasMouseButtonPressed();
+            Win32.WasEscapePressed();
+            _presentationMenuWatch.Start();
         };
+        _presentationMenuWatch.Tick += OnPresentationMenuWatchTick;
     }
 
     private void OnPresentationClicked(object sender, RoutedEventArgs e)
@@ -761,6 +772,26 @@ public partial class ToolbarWindow : Window
         // Verticale, la barre ouvre son menu à côté ; Windows le ramène dans l'écran s'il n'y a pas la place.
         _presentationMenu.Placement = EffectiveVertical ? PlacementMode.Right : PlacementMode.Bottom;
         _presentationMenu.IsOpen = true;
+    }
+
+    // Sur une barre qui ne prend pas le focus, le menu ne voit pas les clics dans une autre application : l'état des boutons vient du système.
+    // Un appui dans le menu est ignoré : le clic doit atteindre sa case. Fermer le menu ne prend pas le focus.
+    private void OnPresentationMenuWatchTick(object? sender, EventArgs e)
+    {
+        var pressed = Win32.WasMouseButtonPressed();
+        var escape = Win32.WasEscapePressed();
+
+        if (escape || (pressed && PresentationGeometry.PressClosesMenu(Win32.GetPointer(), ScreenBounds(_presentationMenu), ScreenBounds(PresentationButton))))
+        {
+            _presentationMenu.IsOpen = false;
+        }
+    }
+
+    private static PixelRect ScreenBounds(FrameworkElement element)
+    {
+        var topLeft = element.PointToScreen(new Point(0, 0));
+        var bottomRight = element.PointToScreen(new Point(element.ActualWidth, element.ActualHeight));
+        return new PixelRect((int)Math.Floor(topLeft.X), (int)Math.Floor(topLeft.Y), (int)Math.Ceiling(bottomRight.X), (int)Math.Ceiling(bottomRight.Y));
     }
 
     private void Register(int id, HotkeyBinding binding)

@@ -44,7 +44,10 @@ public readonly record struct SpotlightCells(int FirstColumn, int FirstRow, int 
     public bool Contains(int column, int row) => column >= FirstColumn && column <= LastColumn && row >= FirstRow && row <= LastRow;
 }
 
-/// <summary>Géométrie des effets, en pixels physiques (PR-3, PR-4).</summary>
+/// <summary>
+/// Géométrie des effets. La loupe est en pixels physiques (PR-3). Les anneaux (PR-4) et les cases du projecteur sont en
+/// DIP : ils suivent l'échelle de l'écran.
+/// </summary>
 public static class PresentationGeometry
 {
     public const double RippleDuration = 400;
@@ -62,10 +65,23 @@ public static class PresentationGeometry
         return CenteredInside(pointer, diameter, monitor);
     }
 
-    /// <summary>Zone d'écran grossie : centrée sur le pointeur, ramenée dans l'écran.</summary>
+    /// <summary>
+    /// Zone d'écran grossie, calée sur la boîte de la loupe : le point affiché sous le curseur est celui qu'un clic touche,
+    /// même quand la boîte est ramenée dans l'écran. Loin des bords, la zone est donc centrée sur le pointeur.
+    /// </summary>
     public static PixelRect MagnifierSource(PixelPoint pointer, int diameter, double zoom, PixelRect monitor)
     {
-        return CenteredInside(pointer, (int)Math.Round(diameter / zoom), monitor);
+        var box = MagnifierWindow(pointer, diameter, monitor);
+        var size = (int)Math.Round(diameter / zoom);
+        var left = ClampToRange(SourceOrigin(pointer.X, box.Left, zoom), monitor.Left, monitor.Right - size);
+        var top = ClampToRange(SourceOrigin(pointer.Y, box.Top, zoom), monitor.Top, monitor.Bottom - size);
+        return new PixelRect(left, top, left + size, top + size);
+    }
+
+    /// <summary>Un appui ferme le menu de présentation seulement s'il tombe hors du menu et hors de son bouton.</summary>
+    public static bool PressClosesMenu(PixelPoint press, PixelRect menu, PixelRect button)
+    {
+        return !menu.Contains(press.X, press.Y) && !button.Contains(press.X, press.Y);
     }
 
     /// <summary>L'anneau grandit et s'efface de façon linéaire, puis reste invisible.</summary>
@@ -100,6 +116,11 @@ public static class PresentationGeometry
     private static int CellIndex(double position, double cell, int count)
     {
         return Math.Clamp((int)Math.Floor(position / cell), 0, count - 1);
+    }
+
+    private static int SourceOrigin(int pointer, int boxOrigin, double zoom)
+    {
+        return (int)Math.Round(pointer - ((pointer - boxOrigin) / zoom));
     }
 
     private static PixelRect CenteredInside(PixelPoint center, int size, PixelRect monitor)

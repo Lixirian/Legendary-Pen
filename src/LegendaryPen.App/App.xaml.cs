@@ -78,6 +78,12 @@ public partial class App : Application
         // Un changement de mode ou d'outil remonte les overlays : les effets doivent repasser au-dessus d'eux, sous la barre.
         _state.Changed += _presenter.Raise;
 
+        // La saisie d'un texte active un overlay, ce qui le remonte : même remède, une fois l'activation faite.
+        _overlays.TextEditingChanged += _presenter.Raise;
+
+        // La recherche du texte sous un trait lit l'écran : le voile et la loupe n'en font pas partie.
+        _overlays.ExcludeEffectsFromCapture = _presenter.ExcludeFromCapture;
+
         PixelPoint? savedPosition = _settings is { ToolbarX: { } x, ToolbarY: { } y } ? new PixelPoint(x, y) : null;
         _updates = UpdateService.IsEnabled ? new UpdateService() : null;
         _toolbar = new ToolbarWindow(
@@ -150,7 +156,6 @@ public partial class App : Application
         _displayChangeTimer.Stop();
         _updateTimer.Stop();
         _tray?.Dispose();
-        _presenter?.Dispose();
 
         if (_saveTimer.IsEnabled)
         {
@@ -162,6 +167,9 @@ public partial class App : Application
             _overlays!.CommitText();
             SaveAnnotations();
         }
+
+        // En dernier : son arrêt peut attendre une seconde le fil de la loupe, l'enregistrement passe avant.
+        _presenter?.Dispose();
 
         _instanceGuard?.Dispose();
         base.OnExit(e);

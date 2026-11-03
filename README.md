@@ -41,7 +41,7 @@ L'interface est disponible en français et en anglais. Elle suit la langue de Wi
 
 ## Mode présentation
 
-Le bouton « Présentation » de la barre, aussi présent dans le menu de l'icône près de l'horloge, ouvre trois cases indépendantes :
+Le bouton « Présentation » de la barre ouvre un menu de trois cases indépendantes, que le menu de l'icône près de l'horloge propose aussi directement :
 
 - **Projecteur** : le pointeur éclaire un disque, le reste de l'écran est assombri.
 - **Loupe** : un disque grossit la zone sous le pointeur. Elle reste visible dans un partage d'écran, ce que nous avons mesuré dans une capture Windows.Graphics.Capture.

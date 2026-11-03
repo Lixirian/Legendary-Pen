@@ -22,6 +22,7 @@ internal sealed class OverlayWindow : Window
     private readonly LiveOptions _options;
     private readonly Func<string?> _boardMonitor;
     private readonly Action<bool> _textEditingChanged;
+    private readonly Func<IDisposable?> _excludeEffectsFromCapture;
     private readonly Grid _root = new();
     private readonly Dictionary<BoardBackground, AnnotationSurface> _surfaces = [];
 
@@ -35,7 +36,8 @@ internal sealed class OverlayWindow : Window
         SurfaceHistories histories,
         LiveOptions options,
         Func<string?> boardMonitor,
-        Action<bool> textEditingChanged)
+        Action<bool> textEditingChanged,
+        Func<IDisposable?> excludeEffectsFromCapture)
     {
         _monitor = monitor;
         _state = state;
@@ -44,6 +46,7 @@ internal sealed class OverlayWindow : Window
         _options = options;
         _boardMonitor = boardMonitor;
         _textEditingChanged = textEditingChanged;
+        _excludeEffectsFromCapture = excludeEffectsFromCapture;
 
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
@@ -219,9 +222,12 @@ internal sealed class OverlayWindow : Window
             text.Height / dpi.DpiScaleY);
     }
 
-    // Sans cela, le trait qui vient d'être tracé et les annotations seraient pris pour du texte.
+    // Sans cela, le trait qui vient d'être tracé, les annotations, le voile et la loupe seraient pris pour le contenu de l'écran.
+    // Si un effet n'a pas pu être retiré, il n'y a pas de capture : le trait reste droit plutôt que de s'ajuster à tort.
     private BitmapSource? CaptureWithoutOwnWindows(PixelRect region)
     {
+        IDisposable? effects = null;
+
         try
         {
             if (!Win32.SetExcludedFromCapture(_handle, true))
@@ -230,6 +236,13 @@ internal sealed class OverlayWindow : Window
             }
 
             Win32.SetExcludedFromCapture(ToolbarHandle, true);
+            effects = _excludeEffectsFromCapture();
+
+            if (effects is null)
+            {
+                return null;
+            }
+
             Win32.WaitForComposition();
 
             return Win32.CaptureScreen(region);
@@ -242,6 +255,7 @@ internal sealed class OverlayWindow : Window
         {
             Win32.SetExcludedFromCapture(_handle, false);
             Win32.SetExcludedFromCapture(ToolbarHandle, false);
+            effects?.Dispose();
         }
     }
 

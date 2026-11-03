@@ -33,6 +33,8 @@ internal static partial class Win32
     private const uint SrcCopy = 0x00CC0020;
     private const uint CaptureBlt = 0x40000000;
     private const int VkShift = 0x10;
+    private const int VkLeftButton = 0x01;
+    private const int VkRightButton = 0x02;
     private const int GwlExStyle = -20;
     private const long WsExTopmost = 0x00000008;
     private const long WsExTransparent = 0x00000020;
@@ -103,6 +105,14 @@ internal static partial class Win32
 
     /// <summary>L'overlay n'a pas le focus clavier : l'état des touches vient du système.</summary>
     public static bool IsShiftDown() => (GetAsyncKeyState(VkShift) & 0x8000) != 0;
+
+    /// <summary>Vrai si un bouton de la souris est enfoncé, ou l'a été depuis l'appel précédent : un clic bref passe entre deux lectures.</summary>
+    public static bool WasMouseButtonPressed() => WasPressed(VkLeftButton) | WasPressed(VkRightButton);
+
+    /// <summary>Vrai si Échap est enfoncée, ou l'a été depuis l'appel précédent.</summary>
+    public static bool WasEscapePressed() => WasPressed((int)VkEscape);
+
+    private static bool WasPressed(int virtualKey) => (GetAsyncKeyState(virtualKey) & 0x8001) != 0;
 
     public static void SetClickThrough(IntPtr window, bool enabled)
     {

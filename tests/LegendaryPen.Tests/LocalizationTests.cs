@@ -23,6 +23,8 @@ public sealed partial class LocalizationTests : IDisposable
         "La loupe ne s'est pas arrêtée à temps.",
         "Loupe indisponible : la création de la fenêtre ou du contrôle a échoué.",
         "Loupe : la liste de filtrage a été refusée.",
+        "La loupe n'a pas confirmé son retrait des captures.",
+        "Loupe : le changement d'exclusion des captures a été refusé.",
         "Loupe indisponible : {exception.Message}",
         "The click hook thread did not stop in time.",
         "Click effects unavailable: the mouse hook was refused.",

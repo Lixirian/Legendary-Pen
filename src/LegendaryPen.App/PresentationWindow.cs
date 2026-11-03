@@ -46,6 +46,9 @@ internal sealed class PresentationWindow : Window
         }
     }
 
+    /// <summary>Retire ou rend la fenêtre aux captures d'écran. Renvoie faux si Windows refuse.</summary>
+    public bool SetExcludedFromCapture(bool excluded) => Win32.SetExcludedFromCapture(_handle, excluded);
+
     /// <summary>Vrai si ce point, en pixels physiques, tombe sur l'écran de cette fenêtre.</summary>
     public bool Contains(PixelPoint point) => Covers(_monitor.Bounds, point);
 
@@ -117,8 +120,8 @@ internal sealed class PresentationWindow : Window
             var shape = PresentationGeometry.RippleAt(Stopwatch.GetElapsedTime(ripple.Start, now).TotalMilliseconds);
             var center = new Point((ripple.Position.X - bounds.Left) / dpi.DpiScaleX, (ripple.Position.Y - bounds.Top) / dpi.DpiScaleY);
 
-            // Le rayon est en pixels physiques : la même taille à l'écran quel que soit l'échelle de cet écran.
-            rings.Add(new RippleRing(center, shape.Radius / dpi.DpiScaleX, shape.Opacity, ripple.Color, RippleThickness / dpi.DpiScaleX));
+            // Le rayon et l'épaisseur sont en DIP (PR-4) : les anneaux suivent l'échelle de l'écran, comme le projecteur.
+            rings.Add(new RippleRing(center, shape.Radius, shape.Opacity, ripple.Color, RippleThickness));
         }
 
         _layer.DrawRipples(rings);
