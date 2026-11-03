@@ -43,7 +43,7 @@ public partial class PdfSignWindow : Window
 
         if (!await Task.Run(() => PdfSigner.CanSign(path)))
         {
-            MessageWindow.Show("Ce PDF ne peut pas être signé ici : il est protégé, interdit la modification ou est endommagé. Il n'a pas été modifié.");
+            MessageWindow.Show(Loc.T("Ce PDF ne peut pas être signé ici : il est protégé, interdit la modification ou est endommagé. Il n'a pas été modifié."));
             return false;
         }
 
@@ -53,7 +53,7 @@ public partial class PdfSignWindow : Window
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException)
         {
-            MessageWindow.Show("Windows ne parvient pas à afficher ce PDF. Il n'a pas été modifié.");
+            MessageWindow.Show(Loc.T("Windows ne parvient pas à afficher ce PDF. Il n'a pas été modifié."));
             return false;
         }
 
@@ -63,11 +63,11 @@ public partial class PdfSignWindow : Window
         Select(null);
         await ShowPageAsync(0);
 
-        Title = $"Signer un PDF - {Path.GetFileName(path)}";
+        Title = Loc.T("Signer un PDF - {0}", Path.GetFileName(path));
 
         if (HasDigitalSignature(path))
         {
-            MessageWindow.Show("Ce PDF porte une signature numérique. Elle restera valable dans l'original, mais plus dans la copie que tu enregistreras ici.");
+            MessageWindow.Show(Loc.T("Ce PDF porte une signature numérique. Elle restera valable dans l'original, mais plus dans la copie que vous enregistrerez ici."));
         }
 
         return true;
@@ -101,13 +101,13 @@ public partial class PdfSignWindow : Window
         try
         {
             await Task.Run(() => PdfSigner.Sign(source, destination, placements));
-            StatusText.Text = $"Enregistré : {destination}";
+            StatusText.Text = Loc.T("Enregistré : {0}", destination);
             return true;
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             // PDFsharp signale les fichiers qu'il ne sait pas relire avec plusieurs types d'exceptions.
-            MessageWindow.Show($"Impossible d'enregistrer le PDF signé. L'original n'a pas été modifié.\n\n{exception.Message}");
+            MessageWindow.Show(Loc.T("Impossible d'enregistrer le PDF signé. L'original n'a pas été modifié.\n\n{0}", exception.Message));
             return false;
         }
         finally
@@ -188,7 +188,7 @@ public partial class PdfSignWindow : Window
         var accent = (Brush)FindResource("AccentBrush");
         var view = new Grid { Background = Brushes.Transparent, Cursor = Cursors.SizeAll };
 
-        System.Windows.Automation.AutomationProperties.SetName(view, "Signature posée");
+        System.Windows.Automation.AutomationProperties.SetName(view, Loc.T("Signature posée"));
         view.Children.Add(new Image { Source = SignatureImage.Build(signature), Stretch = Stretch.Fill });
         view.Children.Add(new Rectangle
         {
@@ -237,7 +237,7 @@ public partial class PdfSignWindow : Window
 
         PreviousButton.IsEnabled = hasDocument && _pageIndex > 0;
         NextButton.IsEnabled = hasDocument && _pageIndex < _preview!.PageCount - 1;
-        PageLabel.Text = hasDocument ? $"Page {_pageIndex + 1} / {_preview!.PageCount}" : "";
+        PageLabel.Text = hasDocument ? Loc.T("Page {0} / {1}", _pageIndex + 1, _preview!.PageCount) : "";
         DrawButton.IsEnabled = hasDocument;
         PlaceSavedButton.IsEnabled = hasDocument && _store.Exists;
         ForgetButton.IsEnabled = _store.Exists;
@@ -317,8 +317,8 @@ public partial class PdfSignWindow : Window
     {
         var dialog = new Microsoft.Win32.OpenFileDialog
         {
-            Title = "Ouvrir un PDF",
-            Filter = "Document PDF (*.pdf)|*.pdf",
+            Title = Loc.T("Ouvrir un PDF"),
+            Filter = Loc.T("Document PDF (*.pdf)|*.pdf"),
         };
 
         if (dialog.ShowDialog(this) == true)
@@ -356,7 +356,7 @@ public partial class PdfSignWindow : Window
         }
         else
         {
-            MessageWindow.Show("La signature mémorisée est illisible. Trace-la de nouveau.");
+            MessageWindow.Show(Loc.T("La signature mémorisée est illisible. Tracez-la de nouveau."));
         }
     }
 
@@ -366,15 +366,15 @@ public partial class PdfSignWindow : Window
     {
         _store.Delete();
         UpdateCommands();
-        StatusText.Text = "La signature mémorisée a été supprimée de cet ordinateur.";
+        StatusText.Text = Loc.T("La signature mémorisée a été supprimée de cet ordinateur.");
     }
 
     private async void OnSaveClicked(object sender, RoutedEventArgs e)
     {
         var dialog = new Microsoft.Win32.SaveFileDialog
         {
-            Title = "Enregistrer le PDF signé",
-            Filter = "Document PDF (*.pdf)|*.pdf",
+            Title = Loc.T("Enregistrer le PDF signé"),
+            Filter = Loc.T("Document PDF (*.pdf)|*.pdf"),
             DefaultExt = ".pdf",
             InitialDirectory = Path.GetDirectoryName(_path),
             FileName = Path.GetFileName(PdfFiles.SignedPath(_path!, File.Exists)),
@@ -387,7 +387,7 @@ public partial class PdfSignWindow : Window
 
         if (PdfFiles.IsSameFile(_path!, dialog.FileName))
         {
-            MessageWindow.Show("Choisis un autre nom : le fichier d'origine n'est jamais remplacé.");
+            MessageWindow.Show(Loc.T("Choisissez un autre nom : le fichier d'origine n'est jamais remplacé."));
             return;
         }
 

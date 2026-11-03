@@ -79,7 +79,7 @@
         <Border Grid.Row="2" Background="{StaticResource RaisedBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
             <Grid>
                 <TextBlock x:Name="EmptyHint"
-                           Text="Ouvre un PDF pour commencer. Le fichier d'origine n'est jamais modifié."
+                           Text="Ouvrez un PDF pour commencer. Le fichier d'origine n'est jamais modifié."
                            Foreground="{StaticResource MutedBrush}"
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center" />

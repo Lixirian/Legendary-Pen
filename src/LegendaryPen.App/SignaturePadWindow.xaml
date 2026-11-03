@@ -9,7 +9,7 @@
         Topmost="True"
         WindowStartupLocation="CenterOwner">
     <StackPanel Margin="18,8,18,18">
-        <TextBlock Text="Signe dans le cadre, à la souris ou au stylet." Foreground="{StaticResource MutedBrush}" />
+        <TextBlock Text="Signez dans le cadre, à la souris ou au stylet." Foreground="{StaticResource MutedBrush}" />
         <Border Margin="0,10,0,0" BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
             <InkCanvas x:Name="Pad"
                        Height="220"

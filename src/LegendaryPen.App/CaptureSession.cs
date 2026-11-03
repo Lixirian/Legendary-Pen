@@ -106,7 +106,7 @@ internal sealed class CaptureWindow : Window
             {
                 Foreground = Brushes.White,
                 FontSize = 14,
-                Text = "Glissez pour choisir une zone  ·  Cliquez pour l'écran entier  ·  Échap pour annuler",
+                Text = Loc.T("Glissez pour choisir une zone  ·  Cliquez pour l'écran entier  ·  Échap pour annuler"),
             },
         };
 
@@ -237,8 +237,8 @@ internal static class CaptureDelivery
 
         var dialog = new Microsoft.Win32.SaveFileDialog
         {
-            Title = "Enregistrer la capture",
-            Filter = "Image PNG (*.png)|*.png",
+            Title = Loc.T("Enregistrer la capture"),
+            Filter = Loc.T("Image PNG (*.png)|*.png"),
             DefaultExt = ".png",
             InitialDirectory = target,
             FileName = System.IO.Path.GetFileName(CaptureFiles.UniquePath(target, DateTime.Now, File.Exists)),

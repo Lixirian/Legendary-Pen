@@ -10,16 +10,18 @@ public sealed class OverlayManager
     private readonly PenState _pen;
     private readonly SurfaceHistories _histories;
     private readonly LiveOptions _options;
+    private readonly AnnotationStore _annotations;
 
     private OverlayWindow? _keyboardOverlay;
     private IntPtr _toolbarHandle;
 
-    public OverlayManager(AppState state, PenState pen, SurfaceHistories histories, LiveOptions options)
+    public OverlayManager(AppState state, PenState pen, SurfaceHistories histories, LiveOptions options, AnnotationStore annotations)
     {
         _state = state;
         _pen = pen;
         _histories = histories;
         _options = options;
+        _annotations = annotations;
 
         _state.Changed += ApplyToVisibleOverlays;
         _pen.Changed += ApplyToVisibleOverlays;
@@ -80,6 +82,17 @@ public sealed class OverlayManager
 
     public void Refresh() => ApplyToVisibleOverlays();
 
+    /// <summary>Enregistre les annotations, y compris celles d'un écran débranché pendant la session.</summary>
+    public void SaveAnnotations()
+    {
+        foreach (var overlay in _overlays.Values)
+        {
+            overlay.SaveAnnotations(_annotations);
+        }
+    }
+
+    public void DeleteSavedAnnotations() => _annotations.DeleteAll();
+
     public void ClearAll()
     {
         var cleared = _overlays.Values
@@ -105,6 +118,12 @@ public sealed class OverlayManager
         {
             ToolbarHandle = _toolbarHandle,
         };
+
+        if (_options.KeepAnnotations)
+        {
+            overlay.RestoreAnnotations(_annotations);
+        }
+
         overlay.Show();
         overlay.Apply();
 

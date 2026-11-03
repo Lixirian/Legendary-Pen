@@ -434,7 +434,7 @@ public partial class ToolbarWindow : Window
         }
 
         ApplyDockAppearance();
-        OrientationButton.ToolTip = EffectiveVertical ? "Mettre la barre à l'horizontale" : "Mettre la barre à la verticale";
+        OrientationButton.ToolTip = EffectiveVertical ? Loc.T("Mettre la barre à l'horizontale") : Loc.T("Mettre la barre à la verticale");
         UpdateSizeLimit();
     }
 
@@ -491,10 +491,10 @@ public partial class ToolbarWindow : Window
             var swatch = new ToggleButton
             {
                 Style = style,
-                ToolTip = "Clic : choisir. Clic droit : modifier",
+                ToolTip = Loc.T("Clic : choisir. Clic droit : modifier"),
             };
 
-            AutomationProperties.SetName(swatch, $"Couleur rapide {index + 1}");
+            AutomationProperties.SetName(swatch, Loc.T("Couleur rapide {0}", index + 1));
             swatch.Checked += (_, _) => OnExclusiveToggled(true, () => _pen.SelectQuickColor(index));
             swatch.Unchecked += (_, _) => OnExclusiveToggled(false, () => { });
             swatch.MouseRightButtonUp += (_, _) =>
@@ -536,6 +536,12 @@ public partial class ToolbarWindow : Window
         }
 
         SizeSlider.Value = _pen.Size;
+
+        PreviousColorButton.IsEnabled = _pen.PreviousColor is not null;
+        PreviousColorDot.Fill = _pen.PreviousColor is { } previous
+            ? new SolidColorBrush(Color.FromRgb(previous.R, previous.G, previous.B))
+            : Brushes.Transparent;
+        PreviousColorDot.Opacity = _pen.PreviousColor is null ? 0.3 : 1;
 
         _refreshing = false;
 
@@ -649,6 +655,7 @@ public partial class ToolbarWindow : Window
             [HotkeyAction.ToggleMode] = _state.ToggleMode,
             [HotkeyAction.ToggleToolbar] = ToggleBarVisibility,
             [HotkeyAction.ExitDraw] = _state.EnterMouse,
+            [HotkeyAction.PreviousColor] = _pen.RestorePreviousColor,
             [HotkeyAction.Undo] = () => _histories.Current.Undo(),
             [HotkeyAction.Redo] = () => _histories.Current.Redo(),
             [HotkeyAction.ClearAll] = _overlays.ClearAll,
@@ -673,8 +680,9 @@ public partial class ToolbarWindow : Window
         void Tip(FrameworkElement element, string text, HotkeyAction action, string? hint = null)
         {
             var shortcut = _hotkeys[action];
-            var label = shortcut.IsNone ? text : $"{text} ({shortcut.Format()})";
-            element.ToolTip = hint is null ? label : $"{label}. {hint}";
+            var name = Loc.T(text);
+            var label = shortcut.IsNone ? name : $"{name} ({shortcut.Format()})";
+            element.ToolTip = hint is null ? label : $"{label}. {Loc.T(hint)}";
         }
 
         Tip(MouseButton, "Mode Souris", HotkeyAction.ExitDraw);
@@ -689,11 +697,12 @@ public partial class ToolbarWindow : Window
         Tip(FadeButton, "Encre évanescente", HotkeyAction.Fading);
         Tip(WhiteboardButton, "Tableau blanc", HotkeyAction.Whiteboard);
         Tip(BlackboardButton, "Tableau noir", HotkeyAction.Blackboard);
-        Tip(UndoButton, "Annuler", HotkeyAction.Undo);
+        Tip(UndoButton, "Annuler la dernière action", HotkeyAction.Undo);
         Tip(RedoButton, "Rétablir", HotkeyAction.Redo);
         Tip(ClearButton, "Tout effacer", HotkeyAction.ClearAll);
         Tip(HideButton, "Masquer les annotations", HotkeyAction.HideAnnotations);
         Tip(CaptureButton, "Capture d'écran", HotkeyAction.Capture);
+        Tip(PreviousColorButton, "Couleur précédente", HotkeyAction.PreviousColor);
     }
 
     private void Register(int id, HotkeyBinding binding)
@@ -704,7 +713,7 @@ public partial class ToolbarWindow : Window
         }
 
         _hotKeyFailureReported = true;
-        MessageWindow.Show($"Le raccourci {binding.Format()} est déjà utilisé par une autre application. Les boutons de la barre restent disponibles, et les réglages permettent d'en choisir un autre.");
+        MessageWindow.Show(Loc.T("Le raccourci {0} est déjà utilisé par une autre application. Les boutons de la barre restent disponibles, et les réglages permettent d'en choisir un autre.", binding.Format()));
     }
 
     private IntPtr OnWindowMessage(IntPtr window, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -850,6 +859,8 @@ public partial class ToolbarWindow : Window
     }
 
     private void OnCaptureClicked(object sender, RoutedEventArgs e) => CaptureRequested?.Invoke();
+
+    private void OnPreviousColorClicked(object sender, RoutedEventArgs e) => _pen.RestorePreviousColor();
 
     private void OnSignPdfClicked(object sender, RoutedEventArgs e) => SignPdfRequested?.Invoke();
 

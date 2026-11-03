@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Ink;
@@ -114,6 +115,68 @@ internal sealed class AnnotationSurface : Grid
         return Ink.Strokes.Count == 0 && texts.Count == 0
             ? null
             : new SurfaceSnapshot(Ink, new StrokeCollection(Ink.Strokes), _textLayer, texts);
+    }
+
+    /// <summary>Contenu à conserver, sans l'encre évanescente. Renvoie null si la surface est vide.</summary>
+    public SavedSurface? ToSaved()
+    {
+        var texts = _textLayer.Children.OfType<TextBlock>().Except(_fadingTexts).ToList();
+
+        if (Ink.Strokes.Count == 0 && texts.Count == 0)
+        {
+            return null;
+        }
+
+        using var strokes = new MemoryStream();
+        Ink.Strokes.Save(strokes, compress: true);
+
+        return new SavedSurface(
+            strokes.ToArray(),
+            texts.Select(text =>
+            {
+                var color = ((SolidColorBrush)text.Foreground).Color;
+
+                return new SavedText(
+                    text.Text,
+                    Canvas.GetLeft(text),
+                    Canvas.GetTop(text),
+                    text.FontSize,
+                    text.FontFamily.Source,
+                    new InkColor(color.R, color.G, color.B).ToHex());
+            }).ToList());
+    }
+
+    /// <summary>Remet un contenu enregistré. Des traits illisibles sont ignorés sans gêner le reste.</summary>
+    public void Restore(SavedSurface saved)
+    {
+        if (saved.Strokes.Length > 0)
+        {
+            try
+            {
+                using var strokes = new MemoryStream(saved.Strokes);
+                Ink.Strokes.Add(new StrokeCollection(strokes));
+            }
+            catch (Exception exception) when (exception is ArgumentException or IOException or InvalidOperationException)
+            {
+                System.Diagnostics.Debug.WriteLine(exception.Message);
+            }
+        }
+
+        foreach (var item in saved.Texts)
+        {
+            var color = InkColor.TryParse(item.Color, out var parsed) ? parsed : _pen.Color;
+            var text = new TextBlock
+            {
+                Text = item.Text,
+                FontSize = item.FontSize,
+                FontFamily = new FontFamily(item.FontFamily),
+                Foreground = new SolidColorBrush(Color.FromRgb(color.R, color.G, color.B)),
+            };
+
+            Canvas.SetLeft(text, item.Left);
+            Canvas.SetTop(text, item.Top);
+            _textLayer.Children.Add(text);
+        }
     }
 
     /// <summary>Valide le texte en cours de saisie. Sans effet s'il n'y en a pas.</summary>
@@ -360,7 +423,7 @@ internal sealed class AnnotationSurface : Grid
             MinWidth = 60,
         };
 
-        AutomationPropertiesHelper.Name(editor, "Texte de l'annotation");
+        AutomationPropertiesHelper.Name(editor, Loc.T("Texte de l'annotation"));
         Canvas.SetLeft(editor, position.X - TextEditorOffset);
         Canvas.SetTop(editor, position.Y - TextEditorOffset);
         editor.PreviewKeyDown += (_, args) =>

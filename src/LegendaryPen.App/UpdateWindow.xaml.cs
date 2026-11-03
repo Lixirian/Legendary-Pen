@@ -19,8 +19,8 @@ public partial class UpdateWindow : Window
 
         InitializeComponent();
 
-        HeadingText.Text = "Une nouvelle version est disponible";
-        VersionsText.Text = $"Version actuelle : {FormatVersion(UpdateService.CurrentVersion)}   →   Nouvelle version : {FormatVersion(manifest.Version)}";
+        HeadingText.Text = Loc.T("Une nouvelle version est disponible");
+        VersionsText.Text = Loc.T("Version actuelle : {0}   →   Nouvelle version : {1}", FormatVersion(UpdateService.CurrentVersion), FormatVersion(manifest.Version));
         NotesList.ItemsSource = manifest.Notes;
     }
 
@@ -54,7 +54,7 @@ public partial class UpdateWindow : Window
                                               or System.ComponentModel.Win32Exception)
         {
             DownloadProgress.Visibility = Visibility.Collapsed;
-            ErrorText.Text = $"La mise à jour a échoué : {exception.Message}";
+            ErrorText.Text = Loc.T("La mise à jour a échoué : {0}", exception.Message);
             ErrorText.Visibility = Visibility.Visible;
             UpdateNowButton.IsEnabled = true;
         }

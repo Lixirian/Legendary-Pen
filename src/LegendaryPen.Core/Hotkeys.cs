@@ -21,6 +21,7 @@ public enum HotkeyAction
     Fading,
     HideAnnotations,
     Capture,
+    PreviousColor,
 }
 
 /// <summary>Combinaison de touches : modificateurs Windows et code de touche virtuelle. La touche 0 désactive.</summary>
@@ -61,7 +62,7 @@ public readonly record struct HotkeyBinding(uint Modifiers, uint Key)
 
         if ((Modifiers & Shift) != 0)
         {
-            parts.Add("Maj");
+            parts.Add(Loc.T("Maj"));
         }
 
         if ((Modifiers & Windows) != 0)
@@ -78,32 +79,35 @@ public readonly record struct HotkeyBinding(uint Modifiers, uint Key)
     {
         return key switch
         {
-            0x08 => "Retour arrière",
+            0x08 => Loc.T("Retour arrière"),
             0x09 => "Tab",
-            0x0D => "Entrée",
-            0x1B => "Échap",
-            0x20 => "Espace",
-            0x21 => "Page préc.",
-            0x22 => "Page suiv.",
-            0x23 => "Fin",
-            0x24 => "Début",
-            0x25 => "Gauche",
-            0x26 => "Haut",
-            0x27 => "Droite",
-            0x28 => "Bas",
-            0x2C => "Impr. écran",
-            0x2D => "Inser",
-            0x2E => "Suppr",
+            0x0D => Loc.T("Entrée"),
+            0x1B => Loc.T("Échap"),
+            0x20 => Loc.T("Espace"),
+            0x21 => Loc.T("Page préc."),
+            0x22 => Loc.T("Page suiv."),
+            0x23 => Loc.T("Fin"),
+            0x24 => Loc.T("Début"),
+            0x25 => Loc.T("Gauche"),
+            0x26 => Loc.T("Haut"),
+            0x27 => Loc.T("Droite"),
+            0x28 => Loc.T("Bas"),
+            0x2C => Loc.T("Impr. écran"),
+            0x2D => Loc.T("Inser"),
+            0x2E => Loc.T("Suppr"),
             >= '0' and <= '9' or >= 'A' and <= 'Z' => ((char)key).ToString(),
-            >= 0x60 and <= 0x69 => $"Pavé {key - 0x60}",
+            >= 0x60 and <= 0x69 => Loc.T("Pavé {0}", key - 0x60),
             >= VkF1 and <= VkF24 => $"F{key - VkF1 + 1}",
-            _ => $"Touche {key:X2}",
+            _ => Loc.T("Touche {0}", key.ToString("X2", System.Globalization.CultureInfo.InvariantCulture)),
         };
     }
 }
 
 /// <param name="IsGlobal">Actif en permanence ; sinon, seulement en mode Dessin.</param>
-public sealed record HotkeyDefinition(HotkeyAction Action, string Label, HotkeyBinding Default, bool IsGlobal = false);
+public sealed record HotkeyDefinition(HotkeyAction Action, string FrenchLabel, HotkeyBinding Default, bool IsGlobal = false)
+{
+    public string Label => Loc.T(FrenchLabel);
+}
 
 public static class HotkeyCatalog
 {
@@ -117,7 +121,7 @@ public static class HotkeyCatalog
         new(HotkeyAction.ToggleMode, "Basculer entre Souris et Dessin", new(HotkeyBinding.Control | HotkeyBinding.Shift, Space), IsGlobal: true),
         new(HotkeyAction.ToggleToolbar, "Afficher ou masquer la barre", new(HotkeyBinding.Control | HotkeyBinding.Shift, F9), IsGlobal: true),
         new(HotkeyAction.ExitDraw, "Quitter le mode Dessin", new(0, Escape)),
-        new(HotkeyAction.Undo, "Annuler", HotkeyBinding.Letter('Z', HotkeyBinding.Control)),
+        new(HotkeyAction.Undo, "Annuler la dernière action", HotkeyBinding.Letter('Z', HotkeyBinding.Control)),
         new(HotkeyAction.Redo, "Rétablir", HotkeyBinding.Letter('Y', HotkeyBinding.Control)),
         new(HotkeyAction.ClearAll, "Tout effacer", new(0, Delete)),
         new(HotkeyAction.Pen, "Stylo", HotkeyBinding.Letter('P')),
@@ -133,6 +137,7 @@ public static class HotkeyCatalog
         new(HotkeyAction.Fading, "Encre évanescente", HotkeyBinding.Letter('F')),
         new(HotkeyAction.HideAnnotations, "Masquer les annotations", HotkeyBinding.Letter('V')),
         new(HotkeyAction.Capture, "Capture d'écran", HotkeyBinding.Letter('C')),
+        new(HotkeyAction.PreviousColor, "Couleur précédente", HotkeyBinding.Letter('X')),
     ];
 }
 
@@ -178,7 +183,7 @@ public sealed class HotkeyMap
 
         foreach (var group in duplicates)
         {
-            issues.Add($"{group.Key.Format()} est attribué à : {string.Join(", ", group.Select(definition => definition.Label))}.");
+            issues.Add(Loc.T("{0} est attribué à : {1}.", group.Key.Format(), string.Join(", ", group.Select(definition => definition.Label))));
         }
 
         foreach (var definition in HotkeyCatalog.All)
@@ -192,12 +197,12 @@ public sealed class HotkeyMap
 
             if (definition.IsGlobal && (binding.Modifiers & ~HotkeyBinding.Shift) == 0)
             {
-                issues.Add($"« {definition.Label} » reste actif en permanence : il lui faut Ctrl, Alt ou Win, sinon cette touche ne fonctionnerait plus ailleurs.");
+                issues.Add(Loc.T("« {0} » reste actif en permanence : il lui faut Ctrl, Alt ou Win, sinon cette touche ne fonctionnerait plus ailleurs.", definition.Label));
             }
 
             if ((binding.Modifiers & HotkeyBinding.Control) != 0 && (binding.Modifiers & HotkeyBinding.Alt) != 0)
             {
-                issues.Add($"« {definition.Label} » : Ctrl+Alt équivaut à AltGr sur un clavier français et gênerait la saisie.");
+                issues.Add(Loc.T("« {0} » : Ctrl+Alt équivaut à AltGr sur un clavier français et gênerait la saisie.", definition.Label));
             }
         }
 

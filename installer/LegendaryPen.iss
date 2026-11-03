@@ -26,6 +26,8 @@ ArchitecturesInstallIn64BitMode=x64compatible
 OutputBaseFilename=LegendaryPen-Setup-{#AppVersion}
 Compression=lzma2/max
 SolidCompression=yes
+; Une seule langue proposée d'office : celle de Windows, sans fenêtre de choix supplémentaire quand elle est disponible.
+ShowLanguageDialog=auto
 ; Même apparence que l'application, quel que soit le thème de Windows, à l'installation comme à la désinstallation.
 WizardStyle=modern dark hidebevels
 WizardBackColor=#202124
@@ -39,6 +41,7 @@ RestartApplications=no
 
 [Languages]
 Name: "french"; MessagesFile: "compiler:Languages\French.isl"
+Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked

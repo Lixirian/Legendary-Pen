@@ -87,19 +87,36 @@ public sealed class PenState
     ];
 
     private readonly InkColor[] _quickColors;
+    private readonly Dictionary<DrawingTool, double> _toolSizes;
+    private DrawingTool _tool = DrawingTool.Pen;
 
     public PenState(AppSettings? settings = null)
     {
         _quickColors = ReadQuickColors(settings?.QuickColors);
         Color = InkColor.TryParse(settings?.PenColor, out var color) ? color : _quickColors[0];
+        PreviousColor = InkColor.TryParse(settings?.PreviousPenColor, out var previous) ? previous : null;
         Size = Math.Clamp(settings?.PenSize ?? DefaultSize, MinSize, MaxSize);
+        _toolSizes = ReadToolSizes(settings?.ToolSizes);
+        RememberSizePerTool = settings?.SizePerToolEnabled == true;
+
+        if (RememberSizePerTool && _toolSizes.TryGetValue(_tool, out var size))
+        {
+            Size = size;
+        }
     }
 
     public IReadOnlyList<InkColor> QuickColors => _quickColors;
 
     public InkColor Color { get; private set; }
 
+    public InkColor? PreviousColor { get; private set; }
+
     public double Size { get; private set; }
+
+    public bool RememberSizePerTool { get; private set; }
+
+    public IReadOnlyDictionary<string, double> ToolSizes =>
+        _toolSizes.ToDictionary(pair => pair.Key.ToString(), pair => pair.Value);
 
     /// <summary>Position de la couleur actuelle parmi les couleurs rapides, si elle en fait partie.</summary>
     public int? SelectedQuickColor
@@ -117,8 +134,22 @@ public sealed class PenState
 
     public void SetColor(InkColor color)
     {
+        if (color != Color)
+        {
+            PreviousColor = Color;
+        }
+
         Color = color;
         Changed?.Invoke();
+    }
+
+    /// <summary>Échange la couleur actuelle et la précédente : un second appel revient à l'état initial.</summary>
+    public void RestorePreviousColor()
+    {
+        if (PreviousColor is { } previous)
+        {
+            SetColor(previous);
+        }
     }
 
     public void ReplaceQuickColor(int index, InkColor color)
@@ -130,7 +161,64 @@ public sealed class PenState
     public void SetSize(double size)
     {
         Size = Math.Clamp(size, MinSize, MaxSize);
+
+        if (RememberSizePerTool)
+        {
+            _toolSizes[_tool] = Size;
+        }
+
         Changed?.Invoke();
+    }
+
+    public void SetRememberSizePerTool(bool enabled)
+    {
+        RememberSizePerTool = enabled;
+
+        if (enabled)
+        {
+            _toolSizes[_tool] = Size;
+        }
+    }
+
+    /// <summary>Indique l'outil actif : avec l'option, il retrouve sa taille.</summary>
+    public void ActivateTool(DrawingTool tool)
+    {
+        if (tool == _tool)
+        {
+            return;
+        }
+
+        _tool = tool;
+
+        if (!RememberSizePerTool)
+        {
+            return;
+        }
+
+        if (_toolSizes.TryGetValue(tool, out var size) && size != Size)
+        {
+            Size = size;
+            Changed?.Invoke();
+        }
+        else
+        {
+            _toolSizes[tool] = Size;
+        }
+    }
+
+    private static Dictionary<DrawingTool, double> ReadToolSizes(IReadOnlyDictionary<string, double>? saved)
+    {
+        var sizes = new Dictionary<DrawingTool, double>();
+
+        foreach (var (name, size) in saved ?? new Dictionary<string, double>())
+        {
+            if (Enum.TryParse<DrawingTool>(name, out var tool))
+            {
+                sizes[tool] = Math.Clamp(size, MinSize, MaxSize);
+            }
+        }
+
+        return sizes;
     }
 
     private static InkColor[] ReadQuickColors(IReadOnlyList<string>? saved)

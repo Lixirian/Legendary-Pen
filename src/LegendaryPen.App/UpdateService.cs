@@ -63,7 +63,7 @@ public sealed class UpdateService
 
         if (total > MaxInstallerBytes)
         {
-            throw new InvalidDataException("L'installeur annoncé est anormalement volumineux.");
+            throw new InvalidDataException(Loc.T("L'installeur annoncé est anormalement volumineux."));
         }
 
         await using (var source = await response.Content.ReadAsStreamAsync(cancellation))
@@ -79,7 +79,7 @@ public sealed class UpdateService
 
                 if (received > MaxInstallerBytes)
                 {
-                    throw new InvalidDataException("L'installeur téléchargé est anormalement volumineux.");
+                    throw new InvalidDataException(Loc.T("L'installeur téléchargé est anormalement volumineux."));
                 }
 
                 await target.WriteAsync(buffer.AsMemory(0, read), cancellation);
@@ -101,7 +101,7 @@ public sealed class UpdateService
         if (!authentic)
         {
             File.Delete(path);
-            throw new InvalidDataException("L'installeur téléchargé ne correspond pas à la version signée.");
+            throw new InvalidDataException(Loc.T("L'installeur téléchargé ne correspond pas à la version signée."));
         }
 
         return path;

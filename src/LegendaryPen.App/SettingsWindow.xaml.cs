@@ -31,9 +31,18 @@ public partial class SettingsWindow : Window
         FadeDelaySlider.Value = fade.Delay.TotalSeconds;
         FadeDurationSlider.Value = fade.Duration.TotalSeconds;
 
+        (settings.Language switch
+        {
+            AppLanguage.French => LanguageFrenchRadio,
+            AppLanguage.English => LanguageEnglishRadio,
+            _ => LanguageSystemRadio,
+        }).IsChecked = true;
+
         WheelBox.IsChecked = settings.WheelChangesSize;
         PressureBox.IsChecked = settings.PressureEnabled;
         HighlightSnapBox.IsChecked = settings.HighlightSnapEnabled;
+        SizePerToolBox.IsChecked = settings.SizePerToolEnabled;
+        KeepAnnotationsBox.IsChecked = settings.KeepAnnotations;
         BoardScreenBox.IsChecked = settings.BoardOnToolbarScreenOnly;
 
         FolderBox.Text = string.IsNullOrWhiteSpace(settings.CaptureFolder) ? CaptureDelivery.DefaultFolder : settings.CaptureFolder;
@@ -59,8 +68,8 @@ public partial class SettingsWindow : Window
         {
             var row = new DockPanel { Margin = new Thickness(0, 2, 8, 2) };
 
-            var clear = new Button { Content = "Aucun", Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(6, 0, 0, 0) };
-            AutomationProperties.SetName(clear, $"Désactiver : {definition.Label}");
+            var clear = new Button { Content = Loc.T("Aucun"), Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(6, 0, 0, 0) };
+            AutomationProperties.SetName(clear, Loc.T("Désactiver : {0}", definition.Label));
             clear.Click += (_, _) => SetHotkey(definition.Action, HotkeyBinding.None);
             DockPanel.SetDock(clear, Dock.Right);
 
@@ -71,7 +80,7 @@ public partial class SettingsWindow : Window
 
             var label = new TextBlock
             {
-                Text = definition.IsGlobal ? $"{definition.Label} (toujours actif)" : definition.Label,
+                Text = definition.IsGlobal ? Loc.T("{0} (toujours actif)", definition.Label) : definition.Label,
                 VerticalAlignment = VerticalAlignment.Center,
             };
 
@@ -161,7 +170,7 @@ public partial class SettingsWindow : Window
     {
         var dialog = new Microsoft.Win32.OpenFolderDialog
         {
-            Title = "Dossier des captures",
+            Title = Loc.T("Dossier des captures"),
             InitialDirectory = FolderBox.Text,
         };
 
@@ -177,12 +186,17 @@ public partial class SettingsWindow : Window
 
         Result = _original with
         {
+            Language = LanguageFrenchRadio.IsChecked == true ? AppLanguage.French
+                : LanguageEnglishRadio.IsChecked == true ? AppLanguage.English
+                : AppLanguage.System,
             ToolbarCollapseSeconds = CollapseSlider.Value,
             FadeDelaySeconds = FadeDelaySlider.Value,
             FadeDurationSeconds = FadeDurationSlider.Value,
             WheelChangesSize = WheelBox.IsChecked == true,
             PressureEnabled = PressureBox.IsChecked == true,
             HighlightSnapEnabled = HighlightSnapBox.IsChecked == true,
+            SizePerToolEnabled = SizePerToolBox.IsChecked == true,
+            KeepAnnotations = KeepAnnotationsBox.IsChecked == true,
             BoardOnToolbarScreenOnly = BoardScreenBox.IsChecked == true,
             CaptureFolder = folder == CaptureDelivery.DefaultFolder ? null : folder,
             CaptureDestination = ClipboardRadio.IsChecked == true ? CaptureDestination.Clipboard

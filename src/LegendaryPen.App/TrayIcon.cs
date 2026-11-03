@@ -1,4 +1,5 @@
 using System.Windows;
+using LegendaryPen.Core;
 using Forms = System.Windows.Forms;
 
 namespace LegendaryPen.App;
@@ -19,12 +20,12 @@ internal sealed class TrayIcon : IDisposable
             ForeColor = System.Drawing.Color.White,
             Font = new System.Drawing.Font("Segoe UI", 10f),
         };
-        menu.Items.Add("Afficher ou masquer la barre", null, (_, _) => toggleToolbar());
-        menu.Items.Add("Capture d'écran", null, (_, _) => capture());
-        menu.Items.Add("Signer un PDF", null, (_, _) => signPdf());
-        menu.Items.Add("Réglages", null, (_, _) => settings());
+        menu.Items.Add(Loc.T("Afficher ou masquer la barre"), null, (_, _) => toggleToolbar());
+        menu.Items.Add(Loc.T("Capture d'écran"), null, (_, _) => capture());
+        menu.Items.Add(Loc.T("Signer un PDF"), null, (_, _) => signPdf());
+        menu.Items.Add(Loc.T("Réglages"), null, (_, _) => settings());
         menu.Items.Add(new Forms.ToolStripSeparator { BackColor = DarkMenuColors.Surface, ForeColor = DarkMenuColors.Line });
-        menu.Items.Add("Quitter", null, (_, _) => quit());
+        menu.Items.Add(Loc.T("Quitter"), null, (_, _) => quit());
 
         var resource = Application.GetResourceStream(new Uri("pack://application:,,,/legendary-pen.ico"));
 

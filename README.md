@@ -33,6 +33,10 @@ Tous les raccourcis se modifient dans les réglages. Seuls `Ctrl+Maj+Espace` et 
 
 Au relâchement, le surligneur devient un trait droit et se cale sur la ligne de texte située dessous. L'analyse de l'écran reste locale ; rien n'est enregistré ni envoyé. L'option se désactive dans les réglages.
 
+## Langues
+
+L'interface est disponible en français et en anglais. Elle suit la langue de Windows, ou le choix fait dans les réglages, onglet Général.
+
 ## Signer un PDF
 
 Le bouton « Signer un PDF » de la barre, aussi présent dans le menu de l'icône près de l'horloge, ouvre un document. On y trace sa signature ou on pose celle qu'on a mémorisée, on la déplace et on la redimensionne, puis on enregistre une copie. Le fichier d'origine n'est jamais modifié ; toutes les pages et leur texte sélectionnable sont conservés.

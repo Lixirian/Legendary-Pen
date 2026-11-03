@@ -6,6 +6,8 @@ public sealed record AppSettings
 {
     public int Version { get; init; } = 1;
 
+    public AppLanguage Language { get; init; }
+
     public int? ToolbarX { get; init; }
 
     public int? ToolbarY { get; init; }
@@ -43,6 +45,14 @@ public sealed record AppSettings
     public string? PenColor { get; init; }
 
     public double? PenSize { get; init; }
+
+    public string? PreviousPenColor { get; init; }
+
+    public bool SizePerToolEnabled { get; init; }
+
+    public IReadOnlyDictionary<string, double>? ToolSizes { get; init; }
+
+    public bool KeepAnnotations { get; init; }
 }
 
 /// <summary>Lit et écrit les réglages sans jamais laisser de fichier à moitié écrit.</summary>

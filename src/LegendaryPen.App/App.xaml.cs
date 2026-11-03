@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -12,6 +13,7 @@ public partial class App : Application
 {
     private readonly DispatcherTimer _displayChangeTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private readonly DispatcherTimer _saveTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
+    private readonly DispatcherTimer _annotationSaveTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly DispatcherTimer _updateTimer = new() { Interval = TimeSpan.FromMinutes(10) };
 
     private SingleInstanceGuard? _instanceGuard;
@@ -44,6 +46,8 @@ public partial class App : Application
             "Legendary Pen",
             "settings.json"));
         _settings = LoadSettings(_settingsStore);
+        Loc.Use(_settings.Language, CultureInfo.CurrentUICulture.TwoLetterISOLanguageName);
+        WindowLocalizer.Register();
 
         _state = new AppState();
         _state.RestoreFading(_settings.FadingEnabled);
@@ -51,7 +55,20 @@ public partial class App : Application
         var monitors = Win32.GetMonitors();
         _pen = new PenState(_settings);
         _options = new LiveOptions(_settings);
-        _overlays = new OverlayManager(_state, _pen, histories, _options);
+        _overlays = new OverlayManager(_state, _pen, histories, _options, new AnnotationStore(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "Legendary Pen",
+            "annotations")));
+        _state.Changed += () => _pen.ActivateTool(_state.Tool);
+        histories.Changed += () =>
+        {
+            if (_options.KeepAnnotations)
+            {
+                _annotationSaveTimer.Stop();
+                _annotationSaveTimer.Start();
+            }
+        };
+        _annotationSaveTimer.Tick += (_, _) => SaveAnnotations();
         _overlays.UpdateMonitors(monitors);
 
         PixelPoint? savedPosition = _settings is { ToolbarX: { } x, ToolbarY: { } y } ? new PixelPoint(x, y) : null;
@@ -129,6 +146,12 @@ public partial class App : Application
             SaveSettings();
         }
 
+        if (_options?.KeepAnnotations == true)
+        {
+            _overlays!.CommitText();
+            SaveAnnotations();
+        }
+
         _instanceGuard?.Dispose();
         base.OnExit(e);
     }
@@ -195,7 +218,7 @@ public partial class App : Application
             {
                 case CaptureDestination.Clipboard:
                     CaptureDelivery.CopyToClipboard(image);
-                    _tray!.Notify("Capture copiée dans le presse-papiers.");
+                    _tray!.Notify(Loc.T("Capture copiée dans le presse-papiers."));
                     break;
 
                 case CaptureDestination.Ask:
@@ -209,7 +232,7 @@ public partial class App : Application
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or COMException)
         {
-            MessageWindow.Show($"La capture n'a pas pu être enregistrée : {exception.Message}");
+            MessageWindow.Show(Loc.T("La capture n'a pas pu être enregistrée : {0}", exception.Message));
         }
     }
 
@@ -217,7 +240,7 @@ public partial class App : Application
     {
         if (path is not null)
         {
-            _tray!.Notify($"Capture enregistrée : {Path.GetFileName(path)}", () => CaptureDelivery.ShowInExplorer(path));
+            _tray!.Notify(Loc.T("Capture enregistrée : {0}", Path.GetFileName(path)), () => CaptureDelivery.ShowInExplorer(path));
         }
     }
 
@@ -246,6 +269,17 @@ public partial class App : Application
             _options!.Apply(result);
             _toolbar.SetCollapseDelay(ToolbarDocking.CollapseDelay(result.ToolbarCollapseSeconds));
             _pendingHotkeys = new HotkeyMap(result.Hotkeys);
+            _pen!.SetRememberSizePerTool(result.SizePerToolEnabled);
+
+            if (result.KeepAnnotations)
+            {
+                SaveAnnotations();
+            }
+            else
+            {
+                _annotationSaveTimer.Stop();
+                DeleteSavedAnnotations();
+            }
 
             if (canChangeStartup)
             {
@@ -322,6 +356,32 @@ public partial class App : Application
         _saveTimer.Start();
     }
 
+    private void SaveAnnotations()
+    {
+        _annotationSaveTimer.Stop();
+
+        try
+        {
+            _overlays!.SaveAnnotations();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            _tray?.Notify(Loc.T("Impossible d'enregistrer les annotations."));
+        }
+    }
+
+    private void DeleteSavedAnnotations()
+    {
+        try
+        {
+            _overlays!.DeleteSavedAnnotations();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            MessageWindow.Show(Loc.T("Impossible de supprimer les annotations enregistrées.\n\n{0}", exception.Message));
+        }
+    }
+
     private void SaveSettings()
     {
         _saveTimer.Stop();
@@ -330,6 +390,8 @@ public partial class App : Application
             QuickColors = _pen!.QuickColors.Select(color => color.ToHex()).ToList(),
             PenColor = _pen.Color.ToHex(),
             PenSize = _pen.Size,
+            PreviousPenColor = _pen.PreviousColor?.ToHex(),
+            ToolSizes = _pen.ToolSizes,
         };
 
         try
@@ -338,7 +400,7 @@ public partial class App : Application
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            ReportSettingsFailure($"Enregistrement impossible : {exception.Message}");
+            ReportSettingsFailure(Loc.T("Enregistrement impossible : {0}", exception.Message));
         }
     }
 
@@ -350,13 +412,13 @@ public partial class App : Application
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            ReportSettingsFailure($"Lecture impossible : {exception.Message}");
+            ReportSettingsFailure(Loc.T("Lecture impossible : {0}", exception.Message));
             return new AppSettings();
         }
     }
 
     private static void ReportSettingsFailure(string message)
     {
-        MessageWindow.Show($"Réglages de Legendary Pen. {message}");
+        MessageWindow.Show(Loc.T("Réglages de Legendary Pen. {0}", message));
     }
 }

@@ -91,11 +91,11 @@ public static class PdfFiles
     {
         var folder = Path.GetDirectoryName(source) ?? "";
         var stem = Path.GetFileNameWithoutExtension(source);
-        var path = Path.Combine(folder, $"{stem} (signé).pdf");
+        var path = Path.Combine(folder, Loc.T("{0} (signé).pdf", stem));
 
         for (var suffix = 2; exists(path); suffix++)
         {
-            path = Path.Combine(folder, $"{stem} (signé {suffix}).pdf");
+            path = Path.Combine(folder, Loc.T("{0} (signé {1}).pdf", stem, suffix));
         }
 
         return path;
@@ -149,7 +149,7 @@ public static class PdfSigner
     {
         if (PdfFiles.IsSameFile(source, destination))
         {
-            throw new ArgumentException("La copie signée ne peut pas remplacer le fichier d'origine.", nameof(destination));
+            throw new ArgumentException(Loc.T("La copie signée ne peut pas remplacer le fichier d'origine."), nameof(destination));
         }
 
         using var document = PdfReader.Open(source, PdfDocumentOpenMode.Modify);
@@ -203,7 +203,7 @@ public static class PdfSigner
     {
         const int SignaturesExist = 1;
 
-        using var document = PdfReader.Open(path, PdfDocumentOpenMode.InformationOnly);
+        using var document = PdfReader.Open(path, PdfDocumentOpenMode.Import);
 
         return document.Internals.Catalog.Elements.GetDictionary("/AcroForm") is { } form
             && (form.Elements.GetInteger("/SigFlags") & SignaturesExist) != 0;
@@ -212,7 +212,7 @@ public static class PdfSigner
     private static PdfPageFrame FrameOf(PdfPage page)
     {
         // Lire CropBox sur une page qui n'en a pas en créerait une vide, et changerait le format de la page.
-        var box = page.Elements.ContainsKey("/CropBox") && !page.CropBox.IsEmpty ? page.CropBox : page.MediaBox;
+        var box = page.Elements.ContainsKey("/CropBox") && !page.CropBox.IsZero ? page.CropBox : page.MediaBox;
 
         return new PdfPageFrame(
             Math.Min(box.X1, box.X2),

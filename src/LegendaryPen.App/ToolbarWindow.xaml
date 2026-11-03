@@ -244,6 +244,12 @@
                     ToolTip="Autre couleur"
                     AutomationProperties.Name="Autre couleur"
                     Click="OnMoreColorsClicked" />
+            <Button x:Name="PreviousColorButton"
+                    IsEnabled="False"
+                    AutomationProperties.Name="Couleur précédente"
+                    Click="OnPreviousColorClicked">
+                <Ellipse x:Name="PreviousColorDot" Width="16" Height="16" Stroke="White" StrokeThickness="1" />
+            </Button>
 
             <Border Tag="Separator" Background="#44FFFFFF" />
 
@@ -289,7 +295,7 @@
             <Button x:Name="UndoButton"
                     Content="&#xE7A7;"
                     ToolTip="Annuler (Ctrl+Z)"
-                    AutomationProperties.Name="Annuler"
+                    AutomationProperties.Name="Annuler la dernière action"
                     Click="OnUndoClicked" />
             <Button x:Name="RedoButton"
                     Content="&#xE7A6;"
@@ -312,7 +318,7 @@
                     AutomationProperties.Name="Capture d'écran"
                     Click="OnCaptureClicked" />
             <Button x:Name="SignPdfButton"
-                    Content="&#xE8A5;"
+                    Content="&#xEE56;"
                     ToolTip="Signer un PDF"
                     AutomationProperties.Name="Signer un PDF"
                     Click="OnSignPdfClicked" />

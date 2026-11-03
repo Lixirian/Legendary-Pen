@@ -66,6 +66,8 @@ public sealed class LiveOptions
 
     public bool BoardOnToolbarScreenOnly { get; private set; }
 
+    public bool KeepAnnotations { get; private set; }
+
     public event Action? Changed;
 
     public void Apply(AppSettings settings)
@@ -75,6 +77,7 @@ public sealed class LiveOptions
         PressureEnabled = settings.PressureEnabled;
         HighlightSnapEnabled = settings.HighlightSnapEnabled;
         BoardOnToolbarScreenOnly = settings.BoardOnToolbarScreenOnly;
+        KeepAnnotations = settings.KeepAnnotations;
         Changed?.Invoke();
     }
 }

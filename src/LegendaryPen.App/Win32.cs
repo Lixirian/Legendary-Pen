@@ -126,7 +126,7 @@ internal static partial class Win32
         {
             if (!BitBlt(memory, 0, 0, bounds.Width, bounds.Height, screen, bounds.Left, bounds.Top, SrcCopy | CaptureBlt))
             {
-                throw new InvalidOperationException("Windows a refusé la capture de l'écran.");
+                throw new InvalidOperationException(Loc.T("Windows a refusé la capture de l'écran."));
             }
 
             var image = Imaging.CreateBitmapSourceFromHBitmap(bitmap, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());

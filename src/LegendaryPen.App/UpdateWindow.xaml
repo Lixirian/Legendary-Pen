@@ -22,7 +22,7 @@
 
         <TextBlock Margin="0,12,0,0"
                    TextWrapping="Wrap"
-                   Text="L'application va se fermer puis redémarrer. Les annotations à l'écran seront perdues." />
+                   Text="L'application va se fermer puis redémarrer. Les annotations à l'écran seront perdues, sauf si l'option pour les retrouver est activée." />
 
         <ProgressBar x:Name="DownloadProgress"
                      Height="8"

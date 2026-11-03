@@ -106,6 +106,32 @@ internal sealed class OverlayWindow : Window
         return GetSurface(EffectiveBackground).TakeSnapshotAndClearFading();
     }
 
+    public void SaveAnnotations(AnnotationStore store)
+    {
+        foreach (var (background, surface) in _surfaces)
+        {
+            if (surface.ToSaved() is { } saved)
+            {
+                store.Save(_monitor.DeviceName, background, saved);
+            }
+            else
+            {
+                store.Delete(_monitor.DeviceName, background);
+            }
+        }
+    }
+
+    public void RestoreAnnotations(AnnotationStore store)
+    {
+        foreach (var background in Enum.GetValues<BoardBackground>())
+        {
+            if (store.Load(_monitor.DeviceName, background) is { } saved)
+            {
+                GetSurface(background).Restore(saved);
+            }
+        }
+    }
+
     public void CommitText()
     {
         foreach (var surface in _surfaces.Values)
