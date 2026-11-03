@@ -27,6 +27,7 @@ public partial class ToolbarWindow : Window
     private readonly AppState _state;
     private readonly PenState _pen;
     private readonly SurfaceHistories _histories;
+    private readonly LayerStacks _layerStacks;
     private readonly OverlayManager _overlays;
     private readonly PresentationState _presentation;
     private readonly UpdateService? _updates;
@@ -55,11 +56,13 @@ public partial class ToolbarWindow : Window
     private DateTime _lastInteraction = DateTime.UtcNow;
     private int _slideRequest;
     private BoardBackground _placedBackground;
+    private LayersWindow? _layersWindow;
 
     public ToolbarWindow(
         AppState state,
         PenState pen,
         SurfaceHistories histories,
+        LayerStacks layerStacks,
         OverlayManager overlays,
         UpdateService? updates,
         IReadOnlyList<MonitorArea> monitors,
@@ -79,6 +82,7 @@ public partial class ToolbarWindow : Window
         _state = state;
         _pen = pen;
         _histories = histories;
+        _layerStacks = layerStacks;
         _overlays = overlays;
         _presentation = presentation;
         _updates = updates;
@@ -196,6 +200,7 @@ public partial class ToolbarWindow : Window
             PlaceDocked();
         }
 
+        _layersWindow?.Raise();
         Win32.BringToTop(_handle);
     }
 
@@ -245,6 +250,7 @@ public partial class ToolbarWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _collapseTimer.Stop();
+        _layersWindow?.Close();
         SetGlobalHotKeys(false);
         SetDrawHotKeys(false);
         base.OnClosed(e);
@@ -381,7 +387,7 @@ public partial class ToolbarWindow : Window
             DateTime.UtcNow - _lastInteraction,
             _collapseDelay,
             IsMouseOver,
-            _dialogOpen || _presentationMenu.IsOpen,
+            _dialogOpen || _presentationMenu.IsOpen || _layersWindow is not null,
             _collapsed);
 
         if (shouldCollapse)
@@ -551,6 +557,7 @@ public partial class ToolbarWindow : Window
             : Brushes.Transparent;
         PreviousColorDot.Opacity = _pen.PreviousColor is null ? 0.3 : 1;
         PresentationButton.Background = _presentation.AnyActive ? (Brush)FindResource("SelectedBrush") : Brushes.Transparent;
+        LayersButton.Background = _layersWindow is not null ? (Brush)FindResource("SelectedBrush") : Brushes.Transparent;
 
         _refreshing = false;
 
@@ -573,6 +580,7 @@ public partial class ToolbarWindow : Window
             }
         }
 
+        _layersWindow?.Raise();
         Win32.BringToTop(_handle);
     }
 
@@ -684,6 +692,7 @@ public partial class ToolbarWindow : Window
             [HotkeyAction.Spotlight] = _presentation.ToggleSpotlight,
             [HotkeyAction.Magnifier] = _presentation.ToggleMagnifier,
             [HotkeyAction.ClickEffects] = _presentation.ToggleClickEffects,
+            [HotkeyAction.Layers] = ToggleLayersPanel,
         };
     }
 
@@ -714,6 +723,7 @@ public partial class ToolbarWindow : Window
         Tip(ClearButton, "Tout effacer", HotkeyAction.ClearAll);
         Tip(HideButton, "Masquer les annotations", HotkeyAction.HideAnnotations);
         Tip(CaptureButton, "Capture d'écran", HotkeyAction.Capture);
+        Tip(LayersButton, "Calques", HotkeyAction.Layers);
         Tip(PreviousColorButton, "Couleur précédente", HotkeyAction.PreviousColor);
 
         // Les trois effets de présentation affichent leur raccourci, quand il y en a un, dans le menu du bouton.
@@ -767,6 +777,39 @@ public partial class ToolbarWindow : Window
         _presentationMenuWatch.Tick += OnPresentationMenuWatchTick;
     }
 
+    private void OnLayersClicked(object sender, RoutedEventArgs e) => ToggleLayersPanel();
+
+    // Le panneau reste ouvert pendant le dessin : il n'est pas un dialogue, aucun raccourci ne se suspend.
+    private void ToggleLayersPanel()
+    {
+        if (_layersWindow is { } open)
+        {
+            open.Close();
+            return;
+        }
+
+        SetCollapsed(false);
+
+        var window = new LayersWindow(_state, _layerStacks, _histories, _overlays.CommitText);
+        _layersWindow = window;
+        window.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_layersWindow, window))
+            {
+                _layersWindow = null;
+                _lastInteraction = DateTime.UtcNow;
+                Refresh();
+            }
+        };
+        window.ContentRendered += (_, _) =>
+        {
+            window.PlaceBeside(Win32.GetBounds(_handle), EffectiveVertical, DockArea(FindBarMonitor()));
+            Refresh();
+        };
+        window.Show();
+        Refresh();
+    }
+
     private void OnPresentationClicked(object sender, RoutedEventArgs e)
     {
         // Verticale, la barre ouvre son menu à côté ; Windows le ramène dans l'écran s'il n'y a pas la place.
@@ -811,6 +854,7 @@ public partial class ToolbarWindow : Window
         if (message == Win32.WmActivate && wParam != IntPtr.Zero)
         {
             SetCollapsed(false);
+            _layersWindow?.Raise();
             Win32.BringToTop(_handle);
             return IntPtr.Zero;
         }

@@ -22,6 +22,7 @@ public partial class App : Application
     private AppState? _state;
     private PenState? _pen;
     private OverlayManager? _overlays;
+    private readonly LayerStacks _layerStacks = new();
     private readonly PresentationState _presentation = new();
     private PresentationManager? _presenter;
     private ToolbarWindow? _toolbar;
@@ -57,7 +58,7 @@ public partial class App : Application
         var monitors = Win32.GetMonitors();
         _pen = new PenState(_settings);
         _options = new LiveOptions(_settings);
-        _overlays = new OverlayManager(_state, _pen, histories, new LayerStacks(), _options, new AnnotationStore(Path.Combine(
+        _overlays = new OverlayManager(_state, _pen, histories, _layerStacks, _options, new AnnotationStore(Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "Legendary Pen",
             "annotations")));
@@ -90,6 +91,7 @@ public partial class App : Application
             _state,
             _pen,
             histories,
+            _layerStacks,
             _overlays,
             _updates,
             monitors,

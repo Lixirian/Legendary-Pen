@@ -211,6 +211,16 @@ public static class Translations
         ["Loupe"] = "Magnifier",
         ["Effets de clic"] = "Click effects",
 
+        // Calques
+        ["Calques"] = "Layers",
+        ["Ajouter"] = "Add",
+        ["Supprimer"] = "Delete",
+        ["Ajouter un calque"] = "Add a layer",
+        ["Supprimer le calque"] = "Delete the layer",
+        ["Afficher ou masquer le calque"] = "Show or hide the layer",
+        ["Monter le calque"] = "Move the layer up",
+        ["Descendre le calque"] = "Move the layer down",
+
         // Mises à jour
         ["Mise à jour de Legendary Pen"] = "Legendary Pen update",
         ["L'application va se fermer puis redémarrer. Les annotations à l'écran seront perdues, sauf si l'option pour les retrouver est activée."] = "The application will close and restart. On-screen annotations will be lost, unless the option to restore them is on.",

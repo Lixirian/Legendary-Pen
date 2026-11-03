@@ -49,6 +49,16 @@ Le bouton « Présentation » de la barre ouvre un menu de trois cases indépend
 
 Aucun raccourci n'est attribué par défaut ; chacun se choisit dans les réglages. Les effets sont suspendus pendant une capture d'écran. Aucune position ni aucun clic n'est enregistré ou envoyé : le crochet souris ne sert qu'à dessiner l'anneau, et il n'est installé que lorsque les effets de clic sont activés.
 
+## Calques
+
+Chaque fond (transparent, tableau blanc, tableau noir) compte de 1 à 8 calques, communs à tous les écrans. Le bouton « Calques » de la barre ouvre un panneau qui reste ouvert pendant le dessin :
+
+- le calque du haut de la liste est celui du dessus ; un clic sur une ligne le rend actif, et seul le calque actif reçoit le tracé, le texte et la gomme ;
+- la case de chaque ligne affiche ou masque le calque, et les flèches le montent ou le descendent. Le calque actif n'est jamais masqué, et le dernier calque visible ne peut pas l'être non plus ;
+- « Ajouter » crée un calque au-dessus du calque actif, « Supprimer » retire le calque actif.
+
+Supprimer un calque s'annule avec Ctrl+Z, contenu compris. Annuler agit toujours sur le calque concerné, et « Tout effacer » vide tous les calques en une seule action annulable. Aucun raccourci n'est attribué par défaut ; il se choisit dans les réglages.
+
 ## Signer un PDF
 
 Le bouton « Signer un PDF » de la barre, aussi présent dans le menu de l'icône près de l'horloge, ouvre un document. On y trace sa signature ou on pose celle qu'on a mémorisée, on la déplace et on la redimensionne, puis on enregistre une copie. Le fichier d'origine n'est jamais modifié ; toutes les pages et leur texte sélectionnable sont conservés.

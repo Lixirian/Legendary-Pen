@@ -363,4 +363,42 @@ public sealed class LayerStackTests : IDisposable
         Assert.Single(stacks.For(BoardBackground.Transparent).Layers);
         Assert.Same(stacks.For(BoardBackground.Blackboard), stacks.For(BoardBackground.Blackboard));
     }
+
+    [Fact]
+    public void Removing_a_layer_undoes_and_redoes_through_the_history()
+    {
+        var stack = new LayerStack();
+        var bottom = stack.Active;
+        var middle = stack.Add();
+        var top = stack.Add();
+        stack.Select(middle.Id);
+        var history = new ActionHistory();
+
+        // Même enchaînement que le panneau : capturer, retirer, capturer, enregistrer.
+        var before = stack.Capture();
+        stack.Remove(middle.Id);
+        var after = stack.Capture();
+        history.Record(new RestoreStateAction(stack, before, after));
+
+        Assert.Equal([bottom.Id, top.Id], stack.Layers.Select(layer => layer.Id));
+        Assert.Equal(bottom.Id, stack.Active.Id);
+
+        history.Undo();
+
+        Assert.Equal([bottom.Id, middle.Id, top.Id], stack.Layers.Select(layer => layer.Id));
+        Assert.Equal(middle.Id, stack.Active.Id);
+
+        history.Redo();
+
+        Assert.Equal([bottom.Id, top.Id], stack.Layers.Select(layer => layer.Id));
+        Assert.Equal(bottom.Id, stack.Active.Id);
+        Assert.Equal(after.NextNumber, stack.Capture().NextNumber);
+    }
+
+    private sealed class RestoreStateAction(LayerStack stack, LayerStackState before, LayerStackState after) : IUndoableAction
+    {
+        public void Undo() => stack.Restore(before);
+
+        public void Redo() => stack.Restore(after);
+    }
 }

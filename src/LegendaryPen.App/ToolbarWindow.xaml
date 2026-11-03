@@ -366,6 +366,11 @@
                           AutomationProperties.Name="Masquer les annotations"
                           Checked="OnHideToggled"
                           Unchecked="OnHideToggled" />
+            <Button x:Name="LayersButton"
+                    Content="&#xE81E;"
+                    ToolTip="Calques"
+                    AutomationProperties.Name="Calques"
+                    Click="OnLayersClicked" />
             <Button x:Name="CaptureButton"
                     Content="&#xE722;"
                     AutomationProperties.Name="Capture d'écran"
