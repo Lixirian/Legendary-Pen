@@ -3,19 +3,46 @@ namespace LegendaryPen.Core;
 /// <summary>Forme reconnue : l'outil et les deux points à passer à <see cref="ShapeGeometry.Build"/>.</summary>
 public sealed record RecognizedShape(DrawingTool Tool, InkPoint Start, InkPoint End);
 
+/// <summary>Boîte englobante d'un tracé, en DIP.</summary>
+public readonly record struct StrokeBounds(double Left, double Top, double Right, double Bottom)
+{
+    public static StrokeBounds Of(IReadOnlyList<InkPoint> points) => new(
+        points.Min(p => p.X),
+        points.Min(p => p.Y),
+        points.Max(p => p.X),
+        points.Max(p => p.Y));
+}
+
 /// <summary>Reconnaît une ligne, un rectangle ou une ellipse dans un tracé à main levée.</summary>
 public static class ShapeRecognizer
 {
-    private const double MinDiagonal = 24;
+    private const double MinDiagonal = 60;
     private const double MaxLineDeviation = 0.04;
+    private const double MaxLineDeviationAbsolute = 16;
     private const double LineWobbleDeviation = 0.015;
+    private const double MaxLineWobbleBand = 4;
     private const int MaxLineWobbles = 1;
     private const double MaxClosureGap = 0.15;
+    private const double MinClosedSide = 24;
     private const double MaxPathOverDiagonal = 4;
     private const double MaxTilt = 20;
-    private const double MaxEllipseResidual = 0.12;
+    private const double MaxEllipseResidual = 0.09;
+    private const double MinTiltedEllipseAspect = 1.2;
+    private const double MaxEllipseTilt = 10;
     private const double SimplifyTolerance = 0.08;
     private const double MinEllipseSweep = 300;
+    private static readonly TimeSpan WritingPause = TimeSpan.FromMilliseconds(800);
+    private const double WritingDistance = 150;
+
+    /// <summary>Vrai si ce tracé suit le précédent d'assez près, dans le temps et l'espace, pour appartenir à une écriture.</summary>
+    public static bool LooksLikeWriting(TimeSpan sinceLastStroke, StrokeBounds lastStroke, StrokeBounds stroke)
+    {
+        var gapX = Math.Max(0, Math.Max(stroke.Left - lastStroke.Right, lastStroke.Left - stroke.Right));
+        var gapY = Math.Max(0, Math.Max(stroke.Top - lastStroke.Bottom, lastStroke.Top - stroke.Bottom));
+
+        return sinceLastStroke < WritingPause
+            && Math.Sqrt((gapX * gapX) + (gapY * gapY)) <= WritingDistance;
+    }
 
     public static RecognizedShape? Recognize(IReadOnlyList<InkPoint> points)
     {
@@ -42,7 +69,7 @@ public static class ShapeRecognizer
         var chord = Distance(first, last);
 
         if (chord > 0
-            && MaxDeviationFromChord(points, first, last) <= MaxLineDeviation * chord
+            && MaxDeviationFromChord(points, first, last) <= Math.Min(MaxLineDeviation * chord, MaxLineDeviationAbsolute)
             && CountWobbles(points, first, last) <= MaxLineWobbles)
         {
             return new RecognizedShape(DrawingTool.Line, first, last);
@@ -55,14 +82,19 @@ public static class ShapeRecognizer
             return null;
         }
 
+        if (Math.Min(width, height) < MinClosedSide)
+        {
+            return null;
+        }
+
         var box = new RecognizedShape(DrawingTool.Rectangle, new InkPoint(minX, minY), new InkPoint(maxX, maxY));
 
-        if (IsRectangle(points, diagonal * SimplifyTolerance))
+        if (IsRectangle(points, diagonal * SimplifyTolerance, MaxClosureGap * pathLength))
         {
             return box;
         }
 
-        if (IsEllipse(points, (minX + maxX) / 2, (minY + maxY) / 2, width / 2, height / 2))
+        if (IsEllipse(points, (minX + maxX) / 2, (minY + maxY) / 2, width / 2, height / 2) && !IsTiltedEllipse(points))
         {
             return box with { Tool = DrawingTool.Ellipse };
         }
@@ -70,7 +102,7 @@ public static class ShapeRecognizer
         return null;
     }
 
-    private static bool IsRectangle(IReadOnlyList<InkPoint> points, double tolerance)
+    private static bool IsRectangle(IReadOnlyList<InkPoint> points, double tolerance, double closureGap)
     {
         var keep = new bool[points.Count];
         keep[0] = true;
@@ -93,10 +125,22 @@ public static class ShapeRecognizer
             corners.RemoveAt(corners.Count - 1);
         }
 
-        // Un tracé commencé au milieu d'un côté laisse un faux sommet de départ, presque plat.
-        if (corners.Count == 5 && TurnAngle(corners[^1], corners[0], corners[1]) < MaxTilt)
+        while (corners.Count > 4)
         {
-            corners.RemoveAt(0);
+            if (corners.Count == 5 && TurnAngle(corners[^1], corners[0], corners[1]) < MaxTilt)
+            {
+                // Un tracé commencé au milieu d'un côté laisse un faux sommet de départ, presque plat.
+                corners.RemoveAt(0);
+            }
+            else if (Distance(corners[0], corners[^1]) <= closureGap)
+            {
+                // Un trou ou un débordement à la fermeture laisse un sommet de plus, près du départ.
+                corners.RemoveAt(corners.Count - 1);
+            }
+            else
+            {
+                return false;
+            }
         }
 
         if (corners.Count != 4)
@@ -104,16 +148,22 @@ public static class ShapeRecognizer
             return false;
         }
 
+        var previousIsHorizontal = false;
+
         for (var i = 0; i < 4; i++)
         {
             var from = corners[i];
             var to = corners[(i + 1) % 4];
             var angle = Math.Atan2(Math.Abs(to.Y - from.Y), Math.Abs(to.X - from.X)) * 180 / Math.PI;
+            var isHorizontal = angle < 45;
 
-            if (Math.Min(angle, 90 - angle) > MaxTilt)
+            // Des côtés qui n'alternent pas sont une rature, pas un rectangle.
+            if (Math.Min(angle, 90 - angle) > MaxTilt || (i > 0 && isHorizontal == previousIsHorizontal))
             {
                 return false;
             }
+
+            previousIsHorizontal = isHorizontal;
         }
 
         return true;
@@ -152,6 +202,30 @@ public static class ShapeRecognizer
             && Math.Abs(sweep) * 180 / Math.PI >= MinEllipseSweep;
     }
 
+    /// <summary>Axe principal tiré des moments d'ordre 2 : une ellipse nettement allongée et penchée serait redressée à tort.</summary>
+    private static bool IsTiltedEllipse(IReadOnlyList<InkPoint> points)
+    {
+        var meanX = points.Average(p => p.X);
+        var meanY = points.Average(p => p.Y);
+        var xx = points.Average(p => (p.X - meanX) * (p.X - meanX));
+        var yy = points.Average(p => (p.Y - meanY) * (p.Y - meanY));
+        var xy = points.Average(p => (p.X - meanX) * (p.Y - meanY));
+
+        var spread = Math.Sqrt(((xx - yy) * (xx - yy)) + (4 * xy * xy));
+        var minor = (xx + yy - spread) / 2;
+
+        if (minor <= 0)
+        {
+            return true;
+        }
+
+        var aspect = Math.Sqrt((xx + yy + spread) / 2 / minor);
+        var axisAngle = Math.Abs(Math.Atan2(2 * xy, xx - yy) / 2 * 180 / Math.PI);
+        var tilt = Math.Min(axisAngle, 90 - axisAngle);
+
+        return aspect > MinTiltedEllipseAspect && tilt > MaxEllipseTilt;
+    }
+
     /// <summary>Douglas-Peucker : marque les points à conserver entre deux indices.</summary>
     private static void Simplify(IReadOnlyList<InkPoint> points, int from, int to, double tolerance, bool[] keep)
     {
@@ -185,7 +259,7 @@ public static class ShapeRecognizer
 
         foreach (var point in points)
         {
-            deviation = Math.Max(deviation, DistanceToLine(point, first, last));
+            deviation = Math.Max(deviation, DistanceToSegment(point, first, last));
         }
 
         return deviation;
@@ -194,7 +268,7 @@ public static class ShapeRecognizer
     /// <summary>Nombre de passages d'un côté à l'autre de la corde, hors de la bande de tolérance : une ondulation n'est pas une droite.</summary>
     private static int CountWobbles(IReadOnlyList<InkPoint> points, InkPoint first, InkPoint last)
     {
-        var band = LineWobbleDeviation * Distance(first, last);
+        var band = Math.Min(LineWobbleDeviation * Distance(first, last), MaxLineWobbleBand);
         var chordX = last.X - first.X;
         var chordY = last.Y - first.Y;
         var chordLength = Distance(first, last);
@@ -241,13 +315,6 @@ public static class ShapeRecognizer
         var turn = Math.Abs(outgoing - incoming);
 
         return (turn > Math.PI ? (2 * Math.PI) - turn : turn) * 180 / Math.PI;
-    }
-
-    private static double DistanceToLine(InkPoint point, InkPoint a, InkPoint b)
-    {
-        var length = Distance(a, b);
-
-        return Math.Abs(((b.X - a.X) * (a.Y - point.Y)) - ((a.X - point.X) * (b.Y - a.Y))) / length;
     }
 
     private static double DistanceToSegment(InkPoint point, InkPoint a, InkPoint b)

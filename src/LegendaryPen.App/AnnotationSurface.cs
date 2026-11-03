@@ -35,6 +35,8 @@ internal sealed class AnnotationSurface : Grid
     private Stroke? _shapePreview;
     private InkPoint _shapeStart;
     private bool _erasingText;
+    private long _strokeDownTime;
+    private (long EndTime, StrokeBounds Bounds)? _lastPenStroke;
 
     public AnnotationSurface(
         AppState state,
@@ -69,6 +71,9 @@ internal sealed class AnnotationSurface : Grid
         Children.Add(_fadeLayer);
         Children.Add(_editorLayer);
 
+        // Le stylet et la souris passent tous les deux ici, avant que l'encre ne démarre.
+        PreviewStylusDown += (_, _) => _strokeDownTime = Environment.TickCount64;
+        PreviewMouseLeftButtonDown += (_, _) => _strokeDownTime = Environment.TickCount64;
         PreviewMouseLeftButtonDown += OnPointerDown;
         PreviewMouseMove += OnPointerMove;
         PreviewMouseLeftButtonUp += OnPointerUp;
@@ -223,13 +228,16 @@ internal sealed class AnnotationSurface : Grid
 
     private void OnStrokeCollected(object sender, InkCanvasStrokeCollectedEventArgs e)
     {
-        if (e.Stroke.DrawingAttributes.IsHighlighter && _options.HighlightSnapEnabled && CleanHighlight(e.Stroke) is { } clean)
+        var isPen = !e.Stroke.DrawingAttributes.IsHighlighter;
+        var followsWriting = isPen && FollowsWriting(e.Stroke);
+
+        if (!isPen && _options.HighlightSnapEnabled && CleanHighlight(e.Stroke) is { } clean)
         {
             Ink.Strokes.Remove(e.Stroke);
             Ink.Strokes.Add(clean);
             FinishStroke(clean);
         }
-        else if (!e.Stroke.DrawingAttributes.IsHighlighter && _options.ShapeRecognitionEnabled && CleanShape(e.Stroke) is { } shape)
+        else if (isPen && !followsWriting && _options.ShapeRecognitionEnabled && CleanShape(e.Stroke) is { } shape)
         {
             if (_state.FadingEnabled)
             {
@@ -252,12 +260,24 @@ internal sealed class AnnotationSurface : Grid
         }
     }
 
+    /// <summary>Compare ce tracé au tracé au stylo précédent, reconnu ou non, puis le retient à sa place.</summary>
+    private bool FollowsWriting(Stroke stroke)
+    {
+        var bounds = StrokeBounds.Of(PointsOf(stroke));
+
+        // La pause se mesure jusqu'à la pose de la pointe : la durée du tracé lui-même n'en fait pas partie.
+        var followsWriting = _lastPenStroke is { } last
+            && ShapeRecognizer.LooksLikeWriting(TimeSpan.FromMilliseconds(_strokeDownTime - last.EndTime), last.Bounds, bounds);
+
+        _lastPenStroke = (Environment.TickCount64, bounds);
+
+        return followsWriting;
+    }
+
     /// <summary>Remplace un tracé au stylo par la forme nette qu'il dessine, ou null si le doute subsiste.</summary>
     private Stroke? CleanShape(Stroke raw)
     {
-        var points = raw.StylusPoints.Select(point => new InkPoint(point.X, point.Y)).ToList();
-
-        if (ShapeRecognizer.Recognize(points) is not { } recognized)
+        if (ShapeRecognizer.Recognize(PointsOf(raw)) is not { } recognized)
         {
             return null;
         }
@@ -271,11 +291,13 @@ internal sealed class AnnotationSurface : Grid
         return new Stroke(ToStylusPoints(outline), attributes);
     }
 
+    private static List<InkPoint> PointsOf(Stroke stroke) =>
+        stroke.StylusPoints.Select(point => new InkPoint(point.X, point.Y)).ToList();
+
     /// <summary>Remplace un surlignage à main levée par un trait droit, calé sur le texte s'il y en a.</summary>
     private Stroke? CleanHighlight(Stroke raw)
     {
-        var points = raw.StylusPoints.Select(point => new InkPoint(point.X, point.Y)).ToList();
-        var (start, end, isHorizontal) = HighlightLine.Straighten(points);
+        var (start, end, isHorizontal) = HighlightLine.Straighten(PointsOf(raw));
         var length = Math.Sqrt(((end.X - start.X) * (end.X - start.X)) + ((end.Y - start.Y) * (end.Y - start.Y)));
 
         // Un simple clic n'a pas de direction à redresser.
