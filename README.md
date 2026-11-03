@@ -31,6 +31,8 @@ L'installeur n'étant pas signé par un certificat commercial, Windows SmartScre
 
 Tous les raccourcis se modifient dans les réglages. Seuls `Ctrl+Maj+Espace` et `Ctrl+Maj+F9` restent réservés en permanence. Les autres touches ne le sont qu'en mode Dessin, et sont libérées pendant la saisie d'un texte.
 
+Au relâchement, le surligneur devient un trait droit et se cale sur la ligne de texte située dessous. L'analyse de l'écran reste locale ; rien n'est enregistré ni envoyé. L'option se désactive dans les réglages.
+
 ## Mises à jour
 
 L'application vérifie la présence d'une nouvelle version au lancement, puis toutes les 10 minutes. Au lancement, elle propose de l'installer ; ensuite, une pastille apparaît dans la barre d'outils.

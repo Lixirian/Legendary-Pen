@@ -62,6 +62,8 @@ public sealed class LiveOptions
 
     public bool PressureEnabled { get; private set; }
 
+    public bool HighlightSnapEnabled { get; private set; }
+
     public bool BoardOnToolbarScreenOnly { get; private set; }
 
     public event Action? Changed;
@@ -71,6 +73,7 @@ public sealed class LiveOptions
         Fade = new FadeTiming(settings.FadeDelaySeconds, settings.FadeDurationSeconds);
         WheelChangesSize = settings.WheelChangesSize;
         PressureEnabled = settings.PressureEnabled;
+        HighlightSnapEnabled = settings.HighlightSnapEnabled;
         BoardOnToolbarScreenOnly = settings.BoardOnToolbarScreenOnly;
         Changed?.Invoke();
     }

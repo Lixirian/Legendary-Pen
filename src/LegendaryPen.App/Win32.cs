@@ -26,6 +26,8 @@ internal static partial class Win32
     public const uint VkY = 0x59;
     public const uint VkZ = 0x5A;
 
+    private const uint WdaNone = 0x00;
+    private const uint WdaExcludeFromCapture = 0x11;
     private const uint SrcCopy = 0x00CC0020;
     private const uint CaptureBlt = 0x40000000;
     private const int VkShift = 0x10;
@@ -140,6 +142,15 @@ internal static partial class Win32
         }
     }
 
+    /// <summary>Retire ou rétablit une fenêtre dans les captures d'écran. Renvoie faux si Windows refuse.</summary>
+    public static bool SetExcludedFromCapture(IntPtr window, bool excluded)
+    {
+        return SetWindowDisplayAffinity(window, excluded ? WdaExcludeFromCapture : WdaNone);
+    }
+
+    /// <summary>Attend que l'écran ait été recomposé.</summary>
+    public static void WaitForComposition() => DwmFlush();
+
     public static PixelPoint GetPointer()
     {
         GetCursorPos(out var point);
@@ -192,6 +203,13 @@ internal static partial class Win32
     {
         SetWindowLongPtrW(window, GwlExStyle, new IntPtr(style));
     }
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool SetWindowDisplayAffinity(IntPtr window, uint affinity);
+
+    [LibraryImport("dwmapi.dll")]
+    private static partial int DwmFlush();
 
     [LibraryImport("user32.dll")]
     private static partial IntPtr GetDC(IntPtr window);

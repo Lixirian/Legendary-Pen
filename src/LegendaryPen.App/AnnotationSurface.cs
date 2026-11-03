@@ -14,12 +14,17 @@ internal sealed class AnnotationSurface : Grid
 {
     private const double MinFontSize = 16;
     private const double FontSizePerPenSize = 4;
+    private const double MinHighlightLength = 4;
+    private const double MinHighlightPadding = 2;
+    private const double HighlightPaddingPerHeight = 0.12;
+    private const double HighlightTipWidth = 1;
 
     private readonly AppState _state;
     private readonly PenState _pen;
     private readonly ActionHistory _history;
     private readonly LiveOptions _options;
     private readonly Action<bool> _textEditingChanged;
+    private readonly Func<double, double, double, Rect?> _findTextUnder;
     private readonly Canvas _textLayer = new() { IsHitTestVisible = false };
     private readonly Canvas _editorLayer = new();
     private readonly FadeLayer _fadeLayer = new();
@@ -35,8 +40,10 @@ internal sealed class AnnotationSurface : Grid
         PenState pen,
         ActionHistory history,
         LiveOptions options,
-        Action<bool> textEditingChanged)
+        Action<bool> textEditingChanged,
+        Func<double, double, double, Rect?> findTextUnder)
     {
+        _findTextUnder = findTextUnder;
         _state = state;
         _pen = pen;
         _history = history;
@@ -151,7 +158,53 @@ internal sealed class AnnotationSurface : Grid
 
     private const double TextEditorOffset = 3;
 
-    private void OnStrokeCollected(object sender, InkCanvasStrokeCollectedEventArgs e) => FinishStroke(e.Stroke);
+    private void OnStrokeCollected(object sender, InkCanvasStrokeCollectedEventArgs e)
+    {
+        if (e.Stroke.DrawingAttributes.IsHighlighter && _options.HighlightSnapEnabled && CleanHighlight(e.Stroke) is { } clean)
+        {
+            Ink.Strokes.Remove(e.Stroke);
+            Ink.Strokes.Add(clean);
+            FinishStroke(clean);
+        }
+        else
+        {
+            FinishStroke(e.Stroke);
+        }
+    }
+
+    /// <summary>Remplace un surlignage à main levée par un trait droit, calé sur le texte s'il y en a.</summary>
+    private Stroke? CleanHighlight(Stroke raw)
+    {
+        var points = raw.StylusPoints.Select(point => new InkPoint(point.X, point.Y)).ToList();
+        var (start, end, isHorizontal) = HighlightLine.Straighten(points);
+        var length = Math.Sqrt(((end.X - start.X) * (end.X - start.X)) + ((end.Y - start.Y) * (end.Y - start.Y)));
+
+        // Un simple clic n'a pas de direction à redresser.
+        if (length < MinHighlightLength)
+        {
+            return null;
+        }
+
+        var attributes = raw.DrawingAttributes.Clone();
+        attributes.FitToCurve = false;
+        attributes.IgnorePressure = true;
+
+        if (isHorizontal && _findTextUnder(start.X, end.X, start.Y) is { } text)
+        {
+            var padding = Math.Max(MinHighlightPadding, text.Height * HighlightPaddingPerHeight);
+            var centerY = text.Top + (text.Height / 2);
+
+            // La pointe rectangulaire s'ajoute aux extrémités : une pointe étroite garde les bords exacts.
+            attributes.Width = HighlightTipWidth;
+            attributes.Height = text.Height + (padding * 2);
+
+            return new Stroke(
+                ToStylusPoints([new InkPoint(text.Left - padding, centerY), new InkPoint(text.Right + padding, centerY)]),
+                attributes);
+        }
+
+        return new Stroke(ToStylusPoints([start, end]), attributes);
+    }
 
     private void FinishStroke(Stroke stroke)
     {

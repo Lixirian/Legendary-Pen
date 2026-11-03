@@ -58,6 +58,7 @@
                     <TextBlock Text="Saisie" Style="{StaticResource Section}" Margin="0,0,0,6" />
                     <CheckBox Margin="0,4" x:Name="WheelBox" Content="La molette change la taille du trait en mode Dessin" />
                     <CheckBox Margin="0,4" x:Name="PressureBox" Content="Tenir compte de la pression du stylet" />
+                    <CheckBox Margin="0,4" x:Name="HighlightSnapBox" Content="Redresser le surligneur et le caler sur le texte" />
 
                     <TextBlock Text="Encre évanescente" Style="{StaticResource Section}" />
                     <TextBlock Text="Délai avant la disparition :" />

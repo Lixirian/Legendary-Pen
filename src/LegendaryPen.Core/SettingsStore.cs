@@ -22,6 +22,8 @@ public sealed record AppSettings
 
     public bool PressureEnabled { get; init; } = true;
 
+    public bool HighlightSnapEnabled { get; init; } = true;
+
     public bool BoardOnToolbarScreenOnly { get; init; }
 
     public CaptureDestination CaptureDestination { get; init; }

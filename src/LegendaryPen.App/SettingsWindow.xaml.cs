@@ -33,6 +33,7 @@ public partial class SettingsWindow : Window
 
         WheelBox.IsChecked = settings.WheelChangesSize;
         PressureBox.IsChecked = settings.PressureEnabled;
+        HighlightSnapBox.IsChecked = settings.HighlightSnapEnabled;
         BoardScreenBox.IsChecked = settings.BoardOnToolbarScreenOnly;
 
         FolderBox.Text = string.IsNullOrWhiteSpace(settings.CaptureFolder) ? CaptureDelivery.DefaultFolder : settings.CaptureFolder;
@@ -181,6 +182,7 @@ public partial class SettingsWindow : Window
             FadeDurationSeconds = FadeDurationSlider.Value,
             WheelChangesSize = WheelBox.IsChecked == true,
             PressureEnabled = PressureBox.IsChecked == true,
+            HighlightSnapEnabled = HighlightSnapBox.IsChecked == true,
             BoardOnToolbarScreenOnly = BoardScreenBox.IsChecked == true,
             CaptureFolder = folder == CaptureDelivery.DefaultFolder ? null : folder,
             CaptureDestination = ClipboardRadio.IsChecked == true ? CaptureDestination.Clipboard

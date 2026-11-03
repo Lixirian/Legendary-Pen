@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using LegendaryPen.Core;
 
@@ -135,6 +136,89 @@ internal sealed class OverlayWindow : Window
         HwndSource.FromHwnd(_handle)!.AddHook(OnWindowMessage);
     }
 
+    /// <summary>Cherche le texte de l'écran sous un trait, en ignorant l'overlay et ses annotations.</summary>
+    private Rect? FindTextUnder(double left, double right, double y)
+    {
+        const int HorizontalMargin = 300;
+        const int VerticalMargin = 70;
+
+        // Un tableau recouvre l'écran : il n'y a pas de texte à reconnaître dessous.
+        if (EffectiveBackground != BoardBackground.Transparent)
+        {
+            return null;
+        }
+
+        var dpi = VisualTreeHelper.GetDpi(this);
+        var bounds = _monitor.Bounds;
+        var screenLeft = bounds.Left + (int)(left * dpi.DpiScaleX);
+        var screenRight = bounds.Left + (int)(right * dpi.DpiScaleX);
+        var screenY = bounds.Top + (int)(y * dpi.DpiScaleY);
+        var margin = (int)(VerticalMargin * dpi.DpiScaleY);
+
+        var region = new PixelRect(
+            Math.Max(bounds.Left, screenLeft - (int)(HorizontalMargin * dpi.DpiScaleX)),
+            Math.Max(bounds.Top, screenY - margin),
+            Math.Min(bounds.Right, screenRight + (int)(HorizontalMargin * dpi.DpiScaleX)),
+            Math.Min(bounds.Bottom, screenY + margin));
+
+        if (region.Width < 2 || region.Height < 2)
+        {
+            return null;
+        }
+
+        if (CaptureWithoutOwnWindows(region) is not { } screen)
+        {
+            return null;
+        }
+
+        var gray = new FormatConvertedBitmap(screen, PixelFormats.Gray8, null, 0);
+        var pixels = new byte[region.Width * region.Height];
+        gray.CopyPixels(pixels, region.Width, 0);
+
+        var span = HighlightSnapper.FindText(
+            new GrayImage(region.Width, region.Height, pixels),
+            screenLeft - region.Left,
+            screenRight - region.Left,
+            screenY - region.Top);
+
+        if (span is not { } text)
+        {
+            return null;
+        }
+
+        return new Rect(
+            (region.Left - bounds.Left + text.Left) / dpi.DpiScaleX,
+            (region.Top - bounds.Top + text.Top) / dpi.DpiScaleY,
+            (text.Right - text.Left) / dpi.DpiScaleX,
+            text.Height / dpi.DpiScaleY);
+    }
+
+    // Sans cela, le trait qui vient d'être tracé et les annotations seraient pris pour du texte.
+    private BitmapSource? CaptureWithoutOwnWindows(PixelRect region)
+    {
+        try
+        {
+            if (!Win32.SetExcludedFromCapture(_handle, true))
+            {
+                return null;
+            }
+
+            Win32.SetExcludedFromCapture(ToolbarHandle, true);
+            Win32.WaitForComposition();
+
+            return Win32.CaptureScreen(region);
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+        finally
+        {
+            Win32.SetExcludedFromCapture(_handle, false);
+            Win32.SetExcludedFromCapture(ToolbarHandle, false);
+        }
+    }
+
     // Limité à un écran, un tableau laisse les autres écrans se comporter normalement.
     private BoardBackground EffectiveBackground =>
         _options.BoardOnToolbarScreenOnly && _boardMonitor() != _monitor.DeviceName
@@ -145,7 +229,7 @@ internal sealed class OverlayWindow : Window
     {
         if (!_surfaces.TryGetValue(background, out var surface))
         {
-            surface = new AnnotationSurface(_state, _pen, _histories.For(background), _options, _textEditingChanged);
+            surface = new AnnotationSurface(_state, _pen, _histories.For(background), _options, _textEditingChanged, FindTextUnder);
             _surfaces[background] = surface;
             _root.Children.Add(surface);
         }
