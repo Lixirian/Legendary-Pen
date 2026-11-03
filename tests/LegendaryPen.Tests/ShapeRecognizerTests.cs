@@ -112,6 +112,18 @@ public class ShapeRecognizerTests
     }
 
     [Fact]
+    public void A_wavy_underline_is_not_a_shape()
+    {
+        Assert.Null(ShapeRecognizer.Recognize(Wave(10)));
+    }
+
+    [Fact]
+    public void A_slightly_wavy_underline_is_not_a_shape()
+    {
+        Assert.Null(ShapeRecognizer.Recognize(Wave(8)));
+    }
+
+    [Fact]
     public void An_open_curve_is_not_a_shape()
     {
         Assert.Null(ShapeRecognizer.Recognize(Arc(new InkPoint(300, 300), 120, 120, 0.5)));
@@ -140,6 +152,20 @@ public class ShapeRecognizerTests
     {
         Assert.InRange(actual.X, expected.X - tolerance, expected.X + tolerance);
         Assert.InRange(actual.Y, expected.Y - tolerance, expected.Y + tolerance);
+    }
+
+    /// <summary>Sinusoïde de 5 périodes sur 400 de large.</summary>
+    private static List<InkPoint> Wave(double amplitude)
+    {
+        var points = new List<InkPoint>();
+
+        for (var i = 0; i < PointCount; i++)
+        {
+            var t = i / (double)(PointCount - 1);
+            points.Add(new InkPoint(100 + (400 * t), 200 + (amplitude * Math.Sin(2 * Math.PI * 5 * t))));
+        }
+
+        return points;
     }
 
     private static InkPoint Noisy(Random random, double x, double y) => new(

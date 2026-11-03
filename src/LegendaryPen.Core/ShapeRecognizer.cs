@@ -8,6 +8,8 @@ public static class ShapeRecognizer
 {
     private const double MinDiagonal = 24;
     private const double MaxLineDeviation = 0.04;
+    private const double LineWobbleDeviation = 0.015;
+    private const int MaxLineWobbles = 1;
     private const double MaxClosureGap = 0.15;
     private const double MaxPathOverDiagonal = 4;
     private const double MaxTilt = 20;
@@ -39,7 +41,9 @@ public static class ShapeRecognizer
         var last = points[^1];
         var chord = Distance(first, last);
 
-        if (chord > 0 && MaxDeviationFromChord(points, first, last) <= MaxLineDeviation * chord)
+        if (chord > 0
+            && MaxDeviationFromChord(points, first, last) <= MaxLineDeviation * chord
+            && CountWobbles(points, first, last) <= MaxLineWobbles)
         {
             return new RecognizedShape(DrawingTool.Line, first, last);
         }
@@ -185,6 +189,37 @@ public static class ShapeRecognizer
         }
 
         return deviation;
+    }
+
+    /// <summary>Nombre de passages d'un côté à l'autre de la corde, hors de la bande de tolérance : une ondulation n'est pas une droite.</summary>
+    private static int CountWobbles(IReadOnlyList<InkPoint> points, InkPoint first, InkPoint last)
+    {
+        var band = LineWobbleDeviation * Distance(first, last);
+        var chordX = last.X - first.X;
+        var chordY = last.Y - first.Y;
+        var chordLength = Distance(first, last);
+        var side = 0;
+        var reversals = 0;
+
+        foreach (var point in points)
+        {
+            var signed = ((chordX * (point.Y - first.Y)) - (chordY * (point.X - first.X))) / chordLength;
+            var current = signed > band ? 1 : signed < -band ? -1 : 0;
+
+            if (current == 0)
+            {
+                continue;
+            }
+
+            if (side != 0 && current != side)
+            {
+                reversals++;
+            }
+
+            side = current;
+        }
+
+        return reversals;
     }
 
     private static double PathLength(IReadOnlyList<InkPoint> points)
