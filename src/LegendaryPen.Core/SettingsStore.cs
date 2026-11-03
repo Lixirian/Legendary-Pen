@@ -12,6 +12,12 @@ public sealed record AppSettings
 
     public bool ToolbarVertical { get; init; }
 
+    public bool FadingEnabled { get; init; }
+
+    public double? FadeDelaySeconds { get; init; }
+
+    public double? FadeDurationSeconds { get; init; }
+
     public IReadOnlyList<string>? QuickColors { get; init; }
 
     public string? PenColor { get; init; }

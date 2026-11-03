@@ -36,6 +36,10 @@ public sealed class AppState
 
     public bool AnnotationsVisible { get; private set; } = true;
 
+    public DrawingTool Tool { get; private set; } = DrawingTool.Pen;
+
+    public bool FadingEnabled { get; private set; }
+
     public bool OverlayAcceptsInput => OverlayInputRules.AcceptsInput(AnnotationsVisible, Mode, Background);
 
     public bool CanDraw => AnnotationsVisible && Mode == AppMode.Draw;
@@ -82,6 +86,31 @@ public sealed class AppState
             AnnotationsVisible = true;
         }
 
+        Changed?.Invoke();
+    }
+
+    public void SelectTool(DrawingTool tool)
+    {
+        Tool = tool;
+        EnterDraw();
+    }
+
+    public void ToggleFading()
+    {
+        FadingEnabled = !FadingEnabled;
+        Changed?.Invoke();
+    }
+
+    public void RestoreFading(bool enabled)
+    {
+        FadingEnabled = enabled;
+    }
+
+    /// <summary>Affiche ce tableau, ou revient à l'écran s'il est déjà affiché.</summary>
+    public void ToggleBoard(BoardBackground board)
+    {
+        AnnotationsVisible = true;
+        Background = Background == board ? BoardBackground.Transparent : board;
         Changed?.Invoke();
     }
 

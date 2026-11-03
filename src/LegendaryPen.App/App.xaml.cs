@@ -15,6 +15,7 @@ public partial class App : Application
     private SingleInstanceGuard? _instanceGuard;
     private SettingsStore? _settingsStore;
     private AppSettings _settings = new();
+    private AppState? _state;
     private PenState? _pen;
     private OverlayManager? _overlays;
     private ToolbarWindow? _toolbar;
@@ -39,16 +40,18 @@ public partial class App : Application
             "settings.json"));
         _settings = LoadSettings(_settingsStore);
 
-        var state = new AppState();
-        var history = new ActionHistory();
+        _state = new AppState();
+        _state.RestoreFading(_settings.FadingEnabled);
+        var histories = new SurfaceHistories(_state);
         var monitors = Win32.GetMonitors();
         _pen = new PenState(_settings);
-        _overlays = new OverlayManager(state, _pen, history);
+        var fadeTiming = new FadeTiming(_settings.FadeDelaySeconds, _settings.FadeDurationSeconds);
+        _overlays = new OverlayManager(_state, _pen, histories, fadeTiming);
         _overlays.UpdateMonitors(monitors);
 
         PixelPoint? savedPosition = _settings is { ToolbarX: { } x, ToolbarY: { } y } ? new PixelPoint(x, y) : null;
         _updates = UpdateService.IsEnabled ? new UpdateService() : null;
-        _toolbar = new ToolbarWindow(state, _pen, history, _overlays, _updates, monitors, savedPosition, _settings.ToolbarVertical);
+        _toolbar = new ToolbarWindow(_state, _pen, histories, _overlays, _updates, monitors, savedPosition, _settings.ToolbarVertical);
         _toolbar.PositionChanged += OnToolbarMoved;
         _toolbar.OrientationChanged += () =>
         {
@@ -58,6 +61,14 @@ public partial class App : Application
         _toolbar.Show();
 
         _pen.Changed += RestartSaveTimer;
+        _state.Changed += () =>
+        {
+            if (_settings.FadingEnabled != _state.FadingEnabled)
+            {
+                _settings = _settings with { FadingEnabled = _state.FadingEnabled };
+                RestartSaveTimer();
+            }
+        };
         _saveTimer.Tick += (_, _) => SaveSettings();
 
         // Windows envoie plusieurs notifications par changement d'écran : seule la dernière compte.

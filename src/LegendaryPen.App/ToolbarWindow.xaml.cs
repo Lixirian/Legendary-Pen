@@ -13,9 +13,7 @@ namespace LegendaryPen.App;
 public partial class ToolbarWindow : Window
 {
     private const int ToggleModeHotKey = 1;
-    private const int ExitDrawHotKey = 2;
-    private const int UndoHotKey = 3;
-    private const int RedoHotKey = 4;
+    private const int FirstDrawHotKey = 2;
 
     private const double ToolButtonSpan = 44;
     private const double GripThickness = 20;
@@ -24,12 +22,14 @@ public partial class ToolbarWindow : Window
 
     private readonly AppState _state;
     private readonly PenState _pen;
-    private readonly ActionHistory _history;
+    private readonly SurfaceHistories _histories;
     private readonly OverlayManager _overlays;
     private readonly UpdateService? _updates;
     private readonly PixelPoint? _savedPosition;
     private readonly List<ToggleButton> _swatches = [];
     private readonly ToggleButton[] _sizeButtons;
+    private readonly ToggleButton[] _toolButtons;
+    private readonly (uint Modifiers, uint Key, string Label, Action Run)[] _drawHotKeys;
 
     private IReadOnlyList<MonitorArea> _monitors;
     private UpdateManifest? _availableUpdate;
@@ -42,7 +42,7 @@ public partial class ToolbarWindow : Window
     public ToolbarWindow(
         AppState state,
         PenState pen,
-        ActionHistory history,
+        SurfaceHistories histories,
         OverlayManager overlays,
         UpdateService? updates,
         IReadOnlyList<MonitorArea> monitors,
@@ -52,7 +52,7 @@ public partial class ToolbarWindow : Window
         IsVertical = vertical;
         _state = state;
         _pen = pen;
-        _history = history;
+        _histories = histories;
         _overlays = overlays;
         _updates = updates;
         _monitors = monitors;
@@ -61,12 +61,15 @@ public partial class ToolbarWindow : Window
         InitializeComponent();
 
         _sizeButtons = [SmallSizeButton, MediumSizeButton, LargeSizeButton];
+        _toolButtons = [PenButton, HighlighterButton, EraserButton, LineButton, ArrowButton, RectangleButton, EllipseButton, TextButton];
+        _drawHotKeys = CreateDrawHotKeys();
         CreateSwatches();
         ApplyOrientation();
 
         _state.Changed += Refresh;
         _pen.Changed += Refresh;
-        _history.Changed += Refresh;
+        _histories.Changed += Refresh;
+        _overlays.TextEditingChanged += Refresh;
         ContentRendered += OnFirstRender;
     }
 
@@ -256,8 +259,15 @@ public partial class ToolbarWindow : Window
         _refreshing = true;
 
         MouseButton.IsChecked = !_state.CanDraw;
-        PenButton.IsChecked = _state.CanDraw;
         HideButton.IsChecked = !_state.AnnotationsVisible;
+        FadeButton.IsChecked = _state.FadingEnabled;
+        WhiteboardButton.IsChecked = _state.Background == BoardBackground.Whiteboard;
+        BlackboardButton.IsChecked = _state.Background == BoardBackground.Blackboard;
+
+        foreach (var button in _toolButtons)
+        {
+            button.IsChecked = _state.CanDraw && _state.Tool == ToolOf(button);
+        }
 
         for (var i = 0; i < _swatches.Count; i++)
         {
@@ -275,11 +285,12 @@ public partial class ToolbarWindow : Window
 
         _refreshing = false;
 
-        UndoButton.IsEnabled = _state.AnnotationsVisible && _history.CanUndo;
-        RedoButton.IsEnabled = _state.AnnotationsVisible && _history.CanRedo;
+        var history = _histories.Current;
+        UndoButton.IsEnabled = _state.AnnotationsVisible && history.CanUndo;
+        RedoButton.IsEnabled = _state.AnnotationsVisible && history.CanRedo;
         ClearButton.IsEnabled = _state.AnnotationsVisible;
 
-        SetDrawHotKeys(_state.CanDraw && !_dialogOpen);
+        SetDrawHotKeys(_state.CanDraw && !_dialogOpen && !_overlays.IsEditingText);
         Win32.BringToTop(_handle);
     }
 
@@ -329,18 +340,44 @@ public partial class ToolbarWindow : Window
 
         _drawHotKeysRegistered = enabled;
 
-        if (enabled)
+        for (var i = 0; i < _drawHotKeys.Length; i++)
         {
-            Register(ExitDrawHotKey, 0, Win32.VkEscape, "Échap");
-            Register(UndoHotKey, Win32.ModControl, Win32.VkZ, "Ctrl+Z");
-            Register(RedoHotKey, Win32.ModControl, Win32.VkY, "Ctrl+Y");
+            if (enabled)
+            {
+                var hotKey = _drawHotKeys[i];
+                Register(FirstDrawHotKey + i, hotKey.Modifiers, hotKey.Key, hotKey.Label);
+            }
+            else
+            {
+                Win32.UnregisterGlobalHotKey(_handle, FirstDrawHotKey + i);
+            }
         }
-        else
-        {
-            Win32.UnregisterGlobalHotKey(_handle, ExitDrawHotKey);
-            Win32.UnregisterGlobalHotKey(_handle, UndoHotKey);
-            Win32.UnregisterGlobalHotKey(_handle, RedoHotKey);
-        }
+    }
+
+    private (uint Modifiers, uint Key, string Label, Action Run)[] CreateDrawHotKeys()
+    {
+        (uint, uint, string, Action) Letter(char letter, Action run) => (0, letter, letter.ToString(), run);
+        (uint, uint, string, Action) Tool(char letter, DrawingTool tool) => Letter(letter, () => _state.SelectTool(tool));
+
+        return
+        [
+            (0, Win32.VkEscape, "Échap", _state.EnterMouse),
+            (Win32.ModControl, Win32.VkZ, "Ctrl+Z", () => _histories.Current.Undo()),
+            (Win32.ModControl, Win32.VkY, "Ctrl+Y", () => _histories.Current.Redo()),
+            (0, Win32.VkDelete, "Suppr", _overlays.ClearAll),
+            Tool('P', DrawingTool.Pen),
+            Tool('H', DrawingTool.Highlighter),
+            Tool('E', DrawingTool.Eraser),
+            Tool('L', DrawingTool.Line),
+            Tool('A', DrawingTool.Arrow),
+            Tool('R', DrawingTool.Rectangle),
+            Tool('O', DrawingTool.Ellipse),
+            Tool('T', DrawingTool.Text),
+            Letter('W', () => _state.ToggleBoard(BoardBackground.Whiteboard)),
+            Letter('B', () => _state.ToggleBoard(BoardBackground.Blackboard)),
+            Letter('F', _state.ToggleFading),
+            Letter('V', _state.ToggleAnnotations),
+        ];
     }
 
     private void Register(int id, uint modifiers, uint virtualKey, string label)
@@ -374,20 +411,15 @@ public partial class ToolbarWindow : Window
 
         handled = true;
 
-        switch (wParam.ToInt32())
+        var id = wParam.ToInt32();
+
+        if (id == ToggleModeHotKey)
         {
-            case ToggleModeHotKey:
-                _state.ToggleMode();
-                break;
-            case ExitDrawHotKey:
-                _state.EnterMouse();
-                break;
-            case UndoHotKey:
-                _history.Undo();
-                break;
-            case RedoHotKey:
-                _history.Redo();
-                break;
+            _state.ToggleMode();
+        }
+        else if (id >= FirstDrawHotKey && id < FirstDrawHotKey + _drawHotKeys.Length)
+        {
+            _drawHotKeys[id - FirstDrawHotKey].Run();
         }
 
         return IntPtr.Zero;
@@ -416,10 +448,29 @@ public partial class ToolbarWindow : Window
         OnExclusiveToggled(MouseButton.IsChecked == true, _state.EnterMouse);
     }
 
-    private void OnPenToggled(object sender, RoutedEventArgs e)
+    private void OnToolToggled(object sender, RoutedEventArgs e)
     {
-        OnExclusiveToggled(PenButton.IsChecked == true, _state.EnterDraw);
+        var button = (ToggleButton)sender;
+        OnExclusiveToggled(button.IsChecked == true, () => _state.SelectTool(ToolOf(button)));
     }
+
+    private void OnFadeToggled(object sender, RoutedEventArgs e)
+    {
+        if (!_refreshing)
+        {
+            _state.ToggleFading();
+        }
+    }
+
+    private void OnBoardToggled(object sender, RoutedEventArgs e)
+    {
+        if (!_refreshing)
+        {
+            _state.ToggleBoard(Enum.Parse<BoardBackground>((string)((ToggleButton)sender).Tag));
+        }
+    }
+
+    private static DrawingTool ToolOf(ToggleButton button) => Enum.Parse<DrawingTool>((string)button.Tag);
 
     private void OnSizePresetToggled(object sender, RoutedEventArgs e)
     {
@@ -457,9 +508,9 @@ public partial class ToolbarWindow : Window
 
     private void OnUpdateClicked(object sender, RoutedEventArgs e) => OfferUpdate();
 
-    private void OnUndoClicked(object sender, RoutedEventArgs e) => _history.Undo();
+    private void OnUndoClicked(object sender, RoutedEventArgs e) => _histories.Current.Undo();
 
-    private void OnRedoClicked(object sender, RoutedEventArgs e) => _history.Redo();
+    private void OnRedoClicked(object sender, RoutedEventArgs e) => _histories.Current.Redo();
 
     private void OnClearClicked(object sender, RoutedEventArgs e) => _overlays.ClearAll();
 

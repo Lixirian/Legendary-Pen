@@ -16,11 +16,13 @@ internal static partial class Win32
     public const uint ModShift = 0x0004;
     public const uint ModNoRepeat = 0x4000;
 
+    public const uint VkDelete = 0x2E;
     public const uint VkEscape = 0x1B;
     public const uint VkSpace = 0x20;
     public const uint VkY = 0x59;
     public const uint VkZ = 0x5A;
 
+    private const int VkShift = 0x10;
     private const int GwlExStyle = -20;
     private const long WsExTransparent = 0x00000020;
     private const long WsExToolWindow = 0x00000080;
@@ -45,6 +47,15 @@ internal static partial class Win32
     {
         SetExStyle(window, (GetExStyle(window) | WsExAppWindow | WsExNoActivate) & ~WsExToolWindow);
     }
+
+    public static void SetNoActivate(IntPtr window, bool enabled)
+    {
+        var style = GetExStyle(window);
+        SetExStyle(window, enabled ? style | WsExNoActivate : style & ~WsExNoActivate);
+    }
+
+    /// <summary>L'overlay n'a pas le focus clavier : l'état des touches vient du système.</summary>
+    public static bool IsShiftDown() => (GetAsyncKeyState(VkShift) & 0x8000) != 0;
 
     public static void SetClickThrough(IntPtr window, bool enabled)
     {
@@ -125,6 +136,9 @@ internal static partial class Win32
     {
         SetWindowLongPtrW(window, GwlExStyle, new IntPtr(style));
     }
+
+    [LibraryImport("user32.dll")]
+    private static partial short GetAsyncKeyState(int virtualKey);
 
     [LibraryImport("user32.dll")]
     private static partial IntPtr GetWindowLongPtrW(IntPtr window, int index);

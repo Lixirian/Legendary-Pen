@@ -109,10 +109,89 @@
                           Unchecked="OnMouseToggled" />
             <ToggleButton x:Name="PenButton"
                           Content="&#xE76D;"
-                          ToolTip="Stylo (Ctrl+Maj+Espace)"
+                          Tag="Pen"
+                          ToolTip="Stylo (P)"
                           AutomationProperties.Name="Stylo"
-                          Checked="OnPenToggled"
-                          Unchecked="OnPenToggled" />
+                          Checked="OnToolToggled"
+                          Unchecked="OnToolToggled" />
+            <ToggleButton x:Name="HighlighterButton"
+                          Content="&#xE7E6;"
+                          Tag="Highlighter"
+                          ToolTip="Surligneur (H)"
+                          AutomationProperties.Name="Surligneur"
+                          Checked="OnToolToggled"
+                          Unchecked="OnToolToggled" />
+            <ToggleButton x:Name="EraserButton"
+                          Content="&#xE75C;"
+                          Tag="Eraser"
+                          ToolTip="Gomme (E)"
+                          AutomationProperties.Name="Gomme"
+                          Checked="OnToolToggled"
+                          Unchecked="OnToolToggled" />
+            <ToggleButton x:Name="LineButton"
+                          Tag="Line"
+                          ToolTip="Ligne (L). Maj : par pas de 45°"
+                          AutomationProperties.Name="Ligne"
+                          Checked="OnToolToggled"
+                          Unchecked="OnToolToggled">
+                <Path Data="M2,14 L14,2" Stroke="White" StrokeThickness="2" StrokeEndLineCap="Round" StrokeStartLineCap="Round" />
+            </ToggleButton>
+            <ToggleButton x:Name="ArrowButton"
+                          Tag="Arrow"
+                          ToolTip="Flèche (A). Maj : par pas de 45°"
+                          AutomationProperties.Name="Flèche"
+                          Checked="OnToolToggled"
+                          Unchecked="OnToolToggled">
+                <Path Data="M2,14 L14,2 M7,2 L14,2 L14,9" Stroke="White" StrokeThickness="2" StrokeEndLineCap="Round" StrokeStartLineCap="Round" StrokeLineJoin="Round" />
+            </ToggleButton>
+            <ToggleButton x:Name="RectangleButton"
+                          Tag="Rectangle"
+                          ToolTip="Rectangle (R). Maj : carré"
+                          AutomationProperties.Name="Rectangle"
+                          Checked="OnToolToggled"
+                          Unchecked="OnToolToggled">
+                <Rectangle Width="16" Height="12" Stroke="White" StrokeThickness="2" />
+            </ToggleButton>
+            <ToggleButton x:Name="EllipseButton"
+                          Tag="Ellipse"
+                          ToolTip="Ellipse (O). Maj : cercle"
+                          AutomationProperties.Name="Ellipse"
+                          Checked="OnToolToggled"
+                          Unchecked="OnToolToggled">
+                <Ellipse Width="16" Height="12" Stroke="White" StrokeThickness="2" />
+            </ToggleButton>
+            <ToggleButton x:Name="TextButton"
+                          Content="&#xE8D2;"
+                          Tag="Text"
+                          ToolTip="Texte (T). Échap ou clic ailleurs : valider"
+                          AutomationProperties.Name="Texte"
+                          Checked="OnToolToggled"
+                          Unchecked="OnToolToggled" />
+
+            <Border Tag="Separator" Background="#44FFFFFF" />
+
+            <ToggleButton x:Name="FadeButton"
+                          Content="&#xE823;"
+                          ToolTip="Encre évanescente (F)"
+                          AutomationProperties.Name="Encre évanescente"
+                          Checked="OnFadeToggled"
+                          Unchecked="OnFadeToggled" />
+            <ToggleButton x:Name="WhiteboardButton"
+                          Tag="Whiteboard"
+                          ToolTip="Tableau blanc (W)"
+                          AutomationProperties.Name="Tableau blanc"
+                          Checked="OnBoardToggled"
+                          Unchecked="OnBoardToggled">
+                <Rectangle Width="18" Height="13" Fill="White" />
+            </ToggleButton>
+            <ToggleButton x:Name="BlackboardButton"
+                          Tag="Blackboard"
+                          ToolTip="Tableau noir (B)"
+                          AutomationProperties.Name="Tableau noir"
+                          Checked="OnBoardToggled"
+                          Unchecked="OnBoardToggled">
+                <Rectangle Width="18" Height="13" Fill="#FF1C1C1E" Stroke="White" StrokeThickness="1" />
+            </ToggleButton>
 
             <Border Tag="Separator" Background="#44FFFFFF" />
 
@@ -175,12 +254,12 @@
                     Click="OnRedoClicked" />
             <Button x:Name="ClearButton"
                     Content="&#xE74D;"
-                    ToolTip="Tout effacer"
+                    ToolTip="Tout effacer (Suppr)"
                     AutomationProperties.Name="Tout effacer"
                     Click="OnClearClicked" />
             <ToggleButton x:Name="HideButton"
                           Content="&#xED1A;"
-                          ToolTip="Masquer les annotations"
+                          ToolTip="Masquer les annotations (V)"
                           AutomationProperties.Name="Masquer les annotations"
                           Checked="OnHideToggled"
                           Unchecked="OnHideToggled" />

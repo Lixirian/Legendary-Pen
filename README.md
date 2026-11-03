@@ -18,7 +18,16 @@ L'installeur n'étant pas signé par un certificat commercial, Windows SmartScre
 | Modifier une couleur rapide | Clic droit sur la couleur |
 | Mettre la barre à la verticale ou à l'horizontale | Bouton de rotation de la barre |
 
-`Échap`, `Ctrl+Z` et `Ctrl+Y` ne sont réservés qu'en mode Dessin.
+| Stylo / surligneur / gomme | `P` / `H` / `E` |
+| Ligne / flèche / rectangle / ellipse | `L` / `A` / `R` / `O` (`Maj` : 45°, carré, cercle) |
+| Texte | `T` (`Échap` ou clic ailleurs pour valider) |
+| Tableau blanc / tableau noir | `W` / `B` |
+| Encre évanescente | `F` |
+| Masquer les annotations | `V` |
+| Tout effacer | `Suppr` |
+| Changer la taille | Molette |
+
+Seul `Ctrl+Maj+Espace` reste réservé en permanence. Les autres touches ne le sont qu'en mode Dessin, et sont libérées pendant la saisie d'un texte.
 
 ## Mises à jour
 
