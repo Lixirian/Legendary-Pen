@@ -380,7 +380,7 @@ public partial class ToolbarWindow : Window
             DateTime.UtcNow - _lastInteraction,
             _collapseDelay,
             IsMouseOver,
-            _dialogOpen,
+            _dialogOpen || _presentationMenu.IsOpen,
             _collapsed);
 
         if (shouldCollapse)
@@ -745,6 +745,8 @@ public partial class ToolbarWindow : Window
         Add(Loc.T("Loupe"), HotkeyAction.Magnifier, _presentation.ToggleMagnifier, () => _presentation.MagnifierOn);
         Add(Loc.T("Effets de clic"), HotkeyAction.ClickEffects, _presentation.ToggleClickEffects, () => _presentation.ClickEffectsOn);
 
+        // Le menu est une fenêtre à part : la barre ne doit pas se replier dessous, ni aussitôt après sa fermeture.
+        _presentationMenu.Closed += (_, _) => _lastInteraction = DateTime.UtcNow;
         _presentationMenu.Opened += (_, _) =>
         {
             foreach (var (item, _, isOn) in _presentationItems)

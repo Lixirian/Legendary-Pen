@@ -23,6 +23,8 @@ public sealed partial class LocalizationTests : IDisposable
         "La loupe ne s'est pas arrêtée à temps.",
         "Loupe indisponible : la création de la fenêtre ou du contrôle a échoué.",
         "Loupe : la liste de filtrage a été refusée.",
+        "The click hook thread did not stop in time.",
+        "Click effects unavailable: the mouse hook was refused.",
     ];
 
     public void Dispose() => Loc.Use(AppLanguage.French, "fr");
@@ -115,6 +117,14 @@ public sealed partial class LocalizationTests : IDisposable
     public void Every_hotkey_label_is_translated()
     {
         Assert.All(HotkeyCatalog.All, definition => Assert.True(Translations.English.ContainsKey(definition.FrenchLabel), definition.FrenchLabel));
+    }
+
+    [Fact]
+    public void The_word_pattern_detects_french_without_accents()
+    {
+        // Un motif cassé ne doit plus jamais passer inaperçu :  borne les mots, et la majuscule initiale n'en fait pas un mot minuscule.
+        Assert.DoesNotMatch(Words(), "Tableau blanc");
+        Assert.Matches(Words(), "sans accent ici");
     }
 
     [Fact]
@@ -222,6 +232,6 @@ public sealed partial class LocalizationTests : IDisposable
     [GeneratedRegex(@"[À-ÿ]")]
     private static partial Regex Accent();
 
-    [GeneratedRegex(@"[a-z]{2,} [a-z]{2,}")]
+    [GeneratedRegex(@"\b[a-z]{2,} [a-z]{2,}\b")]
     private static partial Regex Words();
 }
