@@ -120,9 +120,9 @@ $version = "$major.$minor.$patch"
 $tag = "v$version"
 
 if (-not $NoPublish) {
-    & $gh release view $tag --repo $repoName *> $null
-    if ($LASTEXITCODE -eq 0) { throw "La release $tag existe déjà." }
-    $global:LASTEXITCODE = 0
+    $existingTags = & $gh release list --repo $repoName --limit 1000 --json tagName --jq '.[].tagName'
+    if ($LASTEXITCODE -ne 0) { throw 'Impossible de lister les releases GitHub.' }
+    if (@($existingTags) -contains $tag) { throw "La release $tag existe déjà." }
 }
 
 # --- Tests et installeur ---------------------------------------------------------
