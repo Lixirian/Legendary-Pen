@@ -83,7 +83,7 @@ public partial class App : Application
         _overlays.TextEditingChanged += _presenter.Raise;
 
         // La recherche du texte sous un trait lit l'écran : le voile et la loupe n'en font pas partie.
-        _overlays.ExcludeEffectsFromCapture = _presenter.ExcludeFromCapture;
+        _overlays.ExcludeEffectsFromCapture = ExcludeEffectsAndToolbarFromCapture;
 
         PixelPoint? savedPosition = _settings is { ToolbarX: { } x, ToolbarY: { } y } ? new PixelPoint(x, y) : null;
         _updates = UpdateService.IsEnabled ? new UpdateService() : null;
@@ -104,6 +104,11 @@ public partial class App : Application
             _presentation);
         _overlays.BoardMonitor = () => _toolbar.CurrentMonitorName;
         _toolbar.CaptureRequested += RequestCapture;
+        _toolbar.OverlayAnchorChanged += anchor =>
+        {
+            _overlays.KeepBelowToolbar(anchor);
+            _presenter.KeepBelowToolbar(anchor);
+        };
         _toolbar.SettingsRequested += RequestSettings;
         _toolbar.SignPdfRequested += RequestSignPdf;
         _toolbar.PositionChanged += OnToolbarMoved;
@@ -195,6 +200,7 @@ public partial class App : Application
         {
             var previousOpacity = toolbar.Opacity;
             toolbar.Opacity = 0;
+            var restorePanel = toolbar.HideLayersForCapture();
 
             try
             {
@@ -213,6 +219,7 @@ public partial class App : Application
             finally
             {
                 toolbar.Opacity = previousOpacity;
+                restorePanel();
                 _presenter!.Resume();
             }
 
@@ -221,6 +228,35 @@ public partial class App : Application
                 DeliverCapture(image);
             }
         });
+    }
+
+    // Le panneau des calques n'est pas un effet de présentation, mais il ne doit pas non plus passer pour du contenu de l'écran.
+    private IDisposable? ExcludeEffectsAndToolbarFromCapture()
+    {
+        var effects = _presenter!.ExcludeFromCapture();
+
+        if (effects is null)
+        {
+            return null;
+        }
+
+        if (!_toolbar!.SetCaptureExcluded(true))
+        {
+            _toolbar.SetCaptureExcluded(false);
+            effects.Dispose();
+            return null;
+        }
+
+        return new CaptureRestore(() =>
+        {
+            _toolbar.SetCaptureExcluded(false);
+            effects.Dispose();
+        });
+    }
+
+    private sealed class CaptureRestore(Action restore) : IDisposable
+    {
+        public void Dispose() => restore();
     }
 
     private static void WaitFor(TimeSpan duration)

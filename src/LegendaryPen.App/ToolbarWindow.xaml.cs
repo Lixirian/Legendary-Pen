@@ -57,6 +57,7 @@ public partial class ToolbarWindow : Window
     private int _slideRequest;
     private BoardBackground _placedBackground;
     private LayersWindow? _layersWindow;
+    private bool _closing;
 
     public ToolbarWindow(
         AppState state,
@@ -138,6 +139,9 @@ public partial class ToolbarWindow : Window
 
     public event Action? SignPdfRequested;
 
+    /// <summary>Fenêtre sous laquelle les overlays se tiennent : le panneau des calques quand il est ouvert, sinon la barre.</summary>
+    public event Action<IntPtr>? OverlayAnchorChanged;
+
     /// <summary>Écran où se trouve la barre, pour un tableau limité à un écran.</summary>
     public string? CurrentMonitorName => _handle == IntPtr.Zero ? null : FindBarMonitor().DeviceName;
 
@@ -162,11 +166,13 @@ public partial class ToolbarWindow : Window
     {
         if (IsVisible)
         {
+            _layersWindow?.Hide();
             Hide();
         }
         else
         {
             Show();
+            _layersWindow?.Show();
             ExpandAndReveal();
         }
     }
@@ -200,6 +206,7 @@ public partial class ToolbarWindow : Window
             PlaceDocked();
         }
 
+        PlaceLayersPanel();
         _layersWindow?.Raise();
         Win32.BringToTop(_handle);
     }
@@ -249,6 +256,7 @@ public partial class ToolbarWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        _closing = true;
         _collapseTimer.Stop();
         _layersWindow?.Close();
         SetGlobalHotKeys(false);
@@ -784,7 +792,17 @@ public partial class ToolbarWindow : Window
     {
         if (_layersWindow is { } open)
         {
-            open.Close();
+            if (IsVisible)
+            {
+                open.Close();
+            }
+
+            return;
+        }
+
+        // Une barre masquée n'a pas de panneau à côté d'elle.
+        if (!IsVisible)
+        {
             return;
         }
 
@@ -794,20 +812,65 @@ public partial class ToolbarWindow : Window
         _layersWindow = window;
         window.Closed += (_, _) =>
         {
-            if (ReferenceEquals(_layersWindow, window))
+            if (!ReferenceEquals(_layersWindow, window))
             {
-                _layersWindow = null;
-                _lastInteraction = DateTime.UtcNow;
-                Refresh();
+                return;
             }
+
+            _layersWindow = null;
+
+            if (_closing)
+            {
+                return;
+            }
+
+            _lastInteraction = DateTime.UtcNow;
+            OverlayAnchorChanged?.Invoke(_handle);
+            Refresh();
         };
+        window.PlacementRequested += () => Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, PlaceLayersPanel);
         window.ContentRendered += (_, _) =>
         {
-            window.PlaceBeside(Win32.GetBounds(_handle), EffectiveVertical, DockArea(FindBarMonitor()));
+            PlaceLayersPanel();
+
+            // Les overlays et les effets se tiennent sous le panneau, lui-même sous la barre.
+            OverlayAnchorChanged?.Invoke(window.Handle);
             Refresh();
         };
         window.Show();
         Refresh();
+    }
+
+    private void PlaceLayersPanel()
+    {
+        if (_layersWindow is { IsPlaceable: true } window)
+        {
+            window.PlaceBeside(Win32.GetBounds(_handle), EffectiveVertical, DockArea(FindBarMonitor()));
+        }
+    }
+
+    /// <summary>Cache le panneau le temps d'une capture ; l'appel renvoyé le rétablit.</summary>
+    public Action HideLayersForCapture()
+    {
+        if (_layersWindow is not { } window)
+        {
+            return () => { };
+        }
+
+        var previous = window.Opacity;
+        window.Opacity = 0;
+        return () => window.Opacity = previous;
+    }
+
+    /// <summary>
+    /// Retire la barre et son panneau des captures d'écran, ou les y remet. Renvoie faux si le panneau n'a pas pu l'être :
+    /// la capture serait fausse.
+    /// </summary>
+    public bool SetCaptureExcluded(bool excluded)
+    {
+        var panel = _layersWindow?.SetExcludedFromCapture(excluded) ?? true;
+        var bar = Win32.SetExcludedFromCapture(_handle, excluded);
+        return panel && (bar || !excluded);
     }
 
     private void OnPresentationClicked(object sender, RoutedEventArgs e)

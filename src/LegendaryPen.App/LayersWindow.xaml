@@ -63,10 +63,19 @@
         </Style>
     </Window.Resources>
 
-    <StackPanel Margin="12,4,12,14">
-        <StackPanel x:Name="Rows" />
+    <Grid Margin="12,4,12,14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
 
-        <Grid Margin="0,12,0,0">
+        <ScrollViewer x:Name="RowScroll"
+                      VerticalScrollBarVisibility="Auto"
+                      Focusable="False">
+            <StackPanel x:Name="Rows" />
+        </ScrollViewer>
+
+        <Grid Grid.Row="1" Margin="0,12,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="8" />
@@ -84,5 +93,5 @@
                     AutomationProperties.Name="Supprimer le calque"
                     Click="OnRemoveClicked" />
         </Grid>
-    </StackPanel>
+    </Grid>
 </Window>

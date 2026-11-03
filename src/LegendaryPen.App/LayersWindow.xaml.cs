@@ -43,6 +43,7 @@ public partial class LayersWindow : Window
         Opacity = 0;
         _stack.Changed += Rebuild;
         _state.Changed += OnStateChanged;
+        SizeChanged += (_, _) => PlacementRequested?.Invoke();
         Rebuild();
     }
 
@@ -55,36 +56,52 @@ public partial class LayersWindow : Window
         }
     }
 
-    /// <summary>Place le panneau contre la barre, du côté où il tient dans l'écran, puis le rend visible.</summary>
+    /// <summary>Vrai une fois la fenêtre créée : avant, elle n'a ni identifiant ni taille.</summary>
+    public bool IsPlaceable => _handle != IntPtr.Zero;
+
+    public IntPtr Handle => _handle;
+
+    /// <summary>Levé quand la taille du panneau change : il faut le replacer.</summary>
+    public event Action? PlacementRequested;
+
+    public bool SetExcludedFromCapture(bool excluded) => Win32.SetExcludedFromCapture(_handle, excluded);
+
+    /// <summary>
+    /// Place le panneau contre la barre, du côté où il tient, sans jamais passer dessous ni sortir de la zone ;
+    /// la liste défile si la zone est trop basse. Le rend visible.
+    /// </summary>
     public void PlaceBeside(PixelRect bar, bool vertical, PixelRect area)
     {
         var size = Win32.GetBounds(_handle);
+        var scale = VisualTreeHelper.GetDpi(this).DpiScaleY;
+
+        // Hauteur naturelle : celle de la liste complète, indépendante du plafond posé plus tôt.
+        var natural = (int)Math.Ceiling((ActualHeight - RowScroll.ActualHeight + Rows.DesiredSize.Height) * scale);
         int x;
         int y;
+        int height;
 
         if (vertical)
         {
-            x = bar.Right;
-            y = bar.Top;
-
-            if (x + size.Width > area.Right)
-            {
-                x = bar.Left - size.Width;
-            }
+            var right = area.Right - bar.Right;
+            var left = bar.Left - area.Left;
+            var onRight = right >= size.Width || right >= left;
+            height = Math.Min(natural, area.Height);
+            x = onRight ? bar.Right : bar.Left - size.Width;
+            y = Math.Clamp(bar.Top, area.Top, area.Bottom - height);
         }
         else
         {
-            x = bar.Left;
-            y = bar.Bottom;
-
-            if (y + size.Height > area.Bottom)
-            {
-                y = bar.Top - size.Height;
-            }
+            var below = area.Bottom - bar.Bottom;
+            var above = bar.Top - area.Top;
+            var onBelow = below >= natural || below >= above;
+            height = Math.Min(natural, Math.Max(onBelow ? below : above, 0));
+            x = Math.Clamp(bar.Left, area.Left, Math.Max(area.Left, area.Right - size.Width));
+            y = onBelow ? bar.Bottom : bar.Top - height;
         }
 
         x = Math.Clamp(x, area.Left, Math.Max(area.Left, area.Right - size.Width));
-        y = Math.Clamp(y, area.Top, Math.Max(area.Top, area.Bottom - size.Height));
+        MaxHeight = height < natural && height > 0 ? height / scale : double.PositiveInfinity;
         Win32.MoveTo(_handle, new PixelPoint(x, y));
         Opacity = 1;
         Raise();
