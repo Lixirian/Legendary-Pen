@@ -26,13 +26,20 @@ internal sealed class AnnotationSurface : Grid
     private readonly LiveOptions _options;
     private readonly Action<bool> _textEditingChanged;
     private readonly Func<double, double, double, Rect?> _findTextUnder;
-    private readonly AnnotationLayer _activeLayer = new();
+    private readonly LayerStack _stack;
+
+    // Tous les calques déjà vus par cette surface. Un calque retiré de la pile reste ici, hors de l'arbre visuel, pour qu'Annuler le retrouve.
+    private readonly Dictionary<Guid, AnnotationLayer> _layers = [];
+    private readonly Grid _layerHost = new();
     private readonly Canvas _editorLayer = new();
     private readonly FadeLayer _fadeLayer = new();
     private readonly HashSet<TextBlock> _fadingTexts = [];
 
+    private AnnotationLayer _activeLayer;
+    private double? _toolScale;
     private TextBox? _editor;
     private Stroke? _shapePreview;
+    private InkCanvas? _shapeInk;
     private InkPoint _shapeStart;
     private bool _erasingText;
     private long _strokeDownTime;
@@ -42,6 +49,7 @@ internal sealed class AnnotationSurface : Grid
         AppState state,
         PenState pen,
         ActionHistory history,
+        LayerStack stack,
         LiveOptions options,
         Action<bool> textEditingChanged,
         Func<double, double, double, Rect?> findTextUnder)
@@ -50,17 +58,22 @@ internal sealed class AnnotationSurface : Grid
         _state = state;
         _pen = pen;
         _history = history;
+        _stack = stack;
         _options = options;
         _textEditingChanged = textEditingChanged;
 
         Background = Brushes.Transparent;
 
-        Ink.StrokeCollected += OnStrokeCollected;
-        Ink.StrokeErasing += OnStrokeErasing;
+        _activeLayer = LayerFor(stack.Active.Id);
+        _activeLayer.IsHitTestVisible = true;
 
-        Children.Add(_activeLayer);
+        // L'encre évanescente et le champ de texte restent communs, au-dessus de tous les calques.
+        Children.Add(_layerHost);
         Children.Add(_fadeLayer);
         Children.Add(_editorLayer);
+
+        SyncLayers();
+        stack.Changed += SyncLayers;
 
         // Le stylet et la souris passent tous les deux ici, avant que l'encre ne démarre.
         PreviewStylusDown += (_, _) => _strokeDownTime = Environment.TickCount64;
@@ -77,6 +90,7 @@ internal sealed class AnnotationSurface : Grid
     /// <summary>Reflète l'outil, la couleur et la taille sur cette surface.</summary>
     public void ApplyTool(double scale)
     {
+        _toolScale = scale;
         Ink.DefaultDrawingAttributes = CreateAttributes(forPenInput: true);
 
         var drawing = _state.CanDraw;
@@ -95,37 +109,65 @@ internal sealed class AnnotationSurface : Grid
         Cursor = cursor;
     }
 
-    public SurfaceSnapshot? TakeSnapshotAndClearFading()
+    /// <summary>
+    /// Instantané de chaque calque non vide de la pile, masqué ou non. Un calque retiré n'en fait pas partie :
+    /// annuler son retrait doit rendre son contenu tel quel.
+    /// </summary>
+    public IReadOnlyList<SurfaceSnapshot> TakeSnapshotAndClearFading()
     {
         CommitText();
         _fadeLayer.Clear();
 
+        // Un texte évanescent peut appartenir à un autre calque que le calque actif.
         foreach (var text in _fadingTexts)
         {
-            _activeLayer.Texts.Children.Remove(text);
+            (text.Parent as Panel)?.Children.Remove(text);
         }
 
         _fadingTexts.Clear();
 
-        var texts = _activeLayer.Texts.Children.OfType<TextBlock>().ToList();
+        var snapshots = new List<SurfaceSnapshot>();
 
-        return Ink.Strokes.Count == 0 && texts.Count == 0
-            ? null
-            : new SurfaceSnapshot(Ink, new StrokeCollection(Ink.Strokes), _activeLayer.Texts, texts);
+        foreach (var layer in StackedLayers())
+        {
+            var texts = layer.Texts.Children.OfType<TextBlock>().ToList();
+
+            if (layer.Ink.Strokes.Count > 0 || texts.Count > 0)
+            {
+                snapshots.Add(new SurfaceSnapshot(layer.Ink, new StrokeCollection(layer.Ink.Strokes), layer.Texts, texts));
+            }
+        }
+
+        return snapshots;
     }
 
-    /// <summary>Contenu à conserver, sans l'encre évanescente. Renvoie null si la surface est vide.</summary>
+    /// <summary>
+    /// Contenu à conserver, sans l'encre évanescente. Renvoie null si la surface est vide.
+    /// Règle provisoire, en attendant le format à calques : les calques de la pile, masqués compris, sont fusionnés
+    /// de bas en haut dans le format actuel, pour ne perdre aucun contenu. <see cref="Restore"/> remet ce contenu
+    /// fusionné sur le calque actif.
+    /// </summary>
     public SavedSurface? ToSaved()
     {
-        var texts = _activeLayer.Texts.Children.OfType<TextBlock>().Except(_fadingTexts).ToList();
+        var layers = StackedLayers();
+        var texts = layers
+            .SelectMany(layer => layer.Texts.Children.OfType<TextBlock>())
+            .Except(_fadingTexts)
+            .ToList();
+        var merged = new StrokeCollection();
 
-        if (Ink.Strokes.Count == 0 && texts.Count == 0)
+        foreach (var layer in layers)
+        {
+            merged.Add(layer.Ink.Strokes);
+        }
+
+        if (merged.Count == 0 && texts.Count == 0)
         {
             return null;
         }
 
         using var strokes = new MemoryStream();
-        Ink.Strokes.Save(strokes, compress: true);
+        merged.Save(strokes, compress: true);
 
         return new SavedSurface(
             strokes.ToArray(),
@@ -143,7 +185,10 @@ internal sealed class AnnotationSurface : Grid
             }).ToList());
     }
 
-    /// <summary>Remet un contenu enregistré. Des traits illisibles sont ignorés sans gêner le reste.</summary>
+    /// <summary>
+    /// Remet un contenu enregistré sur le calque actif, selon la règle provisoire de <see cref="ToSaved"/>.
+    /// Des traits illisibles sont ignorés sans gêner le reste.
+    /// </summary>
     public void Restore(SavedSurface saved)
     {
         if (saved.Strokes.Length > 0)
@@ -208,7 +253,7 @@ internal sealed class AnnotationSurface : Grid
 
         if (_state.FadingEnabled)
         {
-            FadeOut(text);
+            FadeOut(text, _activeLayer.Texts);
         }
         else
         {
@@ -218,37 +263,103 @@ internal sealed class AnnotationSurface : Grid
 
     private const double TextEditorOffset = 3;
 
+    /// <summary>Le calque d'un identifiant, créé à la première demande avec ses abonnements, une fois pour toutes.</summary>
+    private AnnotationLayer LayerFor(Guid id)
+    {
+        if (!_layers.TryGetValue(id, out var layer))
+        {
+            layer = new AnnotationLayer { IsHitTestVisible = false };
+            layer.Ink.StrokeCollected += OnStrokeCollected;
+            layer.Ink.StrokeErasing += OnStrokeErasing;
+            _layers[id] = layer;
+        }
+
+        return layer;
+    }
+
+    /// <summary>Les calques de la pile, de bas en haut.</summary>
+    private List<AnnotationLayer> StackedLayers() => _stack.Layers.Select(info => LayerFor(info.Id)).ToList();
+
+    /// <summary>Aligne les enfants sur la pile : présence, ordre, visibilité et calque actif.</summary>
+    private void SyncLayers()
+    {
+        // Le texte en cours appartient au calque qui était actif : il est validé avant tout changement.
+        CommitText();
+
+        var children = _layerHost.Children;
+        var stacked = StackedLayers();
+
+        foreach (var removed in children.Cast<AnnotationLayer>().Except(stacked).ToList())
+        {
+            children.Remove(removed);
+        }
+
+        // Seuls les calques mal placés sont déplacés : les autres gardent leur place dans l'arbre visuel.
+        for (var index = 0; index < stacked.Count; index++)
+        {
+            if (index >= children.Count || !ReferenceEquals(children[index], stacked[index]))
+            {
+                children.Remove(stacked[index]);
+                children.Insert(index, stacked[index]);
+            }
+
+            stacked[index].Visibility = _stack.Layers[index].IsVisible ? Visibility.Visible : Visibility.Hidden;
+        }
+
+        var active = LayerFor(_stack.Active.Id);
+
+        if (ReferenceEquals(active, _activeLayer))
+        {
+            return;
+        }
+
+        _activeLayer.Ink.EditingMode = InkCanvasEditingMode.None;
+        _activeLayer.Ink.EditingModeInverted = InkCanvasEditingMode.None;
+        _activeLayer.IsHitTestVisible = false;
+
+        _activeLayer = active;
+        _activeLayer.IsHitTestVisible = true;
+
+        // Sans échelle connue, l'outil n'a encore jamais été appliqué : OverlayWindow.Apply s'en chargera.
+        if (_toolScale is { } scale)
+        {
+            ApplyTool(scale);
+        }
+    }
+
+    // Le calque actif a pu changer pendant le tracé : l'encre à modifier est celle qui a recueilli le trait.
     private void OnStrokeCollected(object sender, InkCanvasStrokeCollectedEventArgs e)
     {
+        var ink = (InkCanvas)sender;
         var isPen = !e.Stroke.DrawingAttributes.IsHighlighter;
         var followsWriting = isPen && FollowsWriting(e.Stroke);
 
         if (!isPen && _options.HighlightSnapEnabled && CleanHighlight(e.Stroke) is { } clean)
         {
-            Ink.Strokes.Remove(e.Stroke);
-            Ink.Strokes.Add(clean);
-            FinishStroke(clean);
+            ink.Strokes.Remove(e.Stroke);
+            ink.Strokes.Add(clean);
+            FinishStroke(ink, clean);
         }
         else if (isPen && !followsWriting && _options.ShapeRecognitionEnabled && CleanShape(e.Stroke) is { } shape)
         {
             if (_state.FadingEnabled)
             {
                 // Évanescent : FinishStroke ne touche pas à l'historique, seule la forme nette s'efface.
-                Ink.Strokes.Remove(e.Stroke);
-                Ink.Strokes.Add(shape);
-                FinishStroke(shape);
+                ink.Strokes.Remove(e.Stroke);
+                ink.Strokes.Add(shape);
+                FinishStroke(ink, shape);
             }
             else
             {
-                FinishStroke(e.Stroke);
-                Ink.Strokes.Remove(e.Stroke);
-                Ink.Strokes.Add(shape);
-                _history.Record(new ReplaceStrokeAction(Ink, e.Stroke, shape));
+                FinishStroke(ink, e.Stroke);
+                ink.Strokes.Remove(e.Stroke);
+                ink.Strokes.Add(shape);
+                _history.Record(new ReplaceStrokeAction(ink, e.Stroke, shape));
             }
         }
         else
         {
-            FinishStroke(e.Stroke);
+            FinishStroke(ink, e.Stroke);
         }
     }
 
@@ -319,23 +430,23 @@ internal sealed class AnnotationSurface : Grid
         return new Stroke(ToStylusPoints([start, end]), attributes);
     }
 
-    private void FinishStroke(Stroke stroke)
+    private void FinishStroke(InkCanvas ink, Stroke stroke)
     {
         if (_state.FadingEnabled)
         {
             // Une annotation évanescente n'entre pas dans l'historique : Annuler ne peut pas la ramener.
-            Ink.Strokes.Remove(stroke);
+            ink.Strokes.Remove(stroke);
             _fadeLayer.Add(stroke, _options.Fade);
         }
         else
         {
-            _history.Record(new AddStrokeAction(Ink, stroke));
+            _history.Record(new AddStrokeAction(ink, stroke));
         }
     }
 
     private void OnStrokeErasing(object sender, InkCanvasStrokeErasingEventArgs e)
     {
-        _history.Record(new RemoveStrokeAction(Ink, e.Stroke));
+        _history.Record(new RemoveStrokeAction((InkCanvas)sender, e.Stroke));
     }
 
     private void OnPointerDown(object sender, MouseButtonEventArgs e)
@@ -402,7 +513,9 @@ internal sealed class AnnotationSurface : Grid
         }
 
         UpdateShape(e.GetPosition(this));
+        var ink = _shapeInk!;
         _shapePreview = null;
+        _shapeInk = null;
         ReleaseMouseCapture();
 
         var first = preview.StylusPoints[0];
@@ -410,11 +523,11 @@ internal sealed class AnnotationSurface : Grid
 
         if (isEmpty)
         {
-            Ink.Strokes.Remove(preview);
+            ink.Strokes.Remove(preview);
         }
         else
         {
-            FinishStroke(preview);
+            FinishStroke(ink, preview);
         }
 
         e.Handled = true;
@@ -433,7 +546,10 @@ internal sealed class AnnotationSurface : Grid
     {
         _shapeStart = new InkPoint(position.X, position.Y);
         _shapePreview = new Stroke(ToStylusPoints(ShapePoints(position)), CreateAttributes(forPenInput: false));
-        Ink.Strokes.Add(_shapePreview);
+
+        // La forme reste sur le calque où elle a commencé, même si le calque actif change pendant le geste.
+        _shapeInk = Ink;
+        _shapeInk.Strokes.Add(_shapePreview);
         CaptureMouse();
     }
 
@@ -517,7 +633,8 @@ internal sealed class AnnotationSurface : Grid
         }
     }
 
-    private void FadeOut(TextBlock text)
+    // Le calque actif peut changer pendant l'animation : le texte quitte le calque qui le porte.
+    private void FadeOut(TextBlock text, Canvas owner)
     {
         _fadingTexts.Add(text);
 
@@ -525,7 +642,7 @@ internal sealed class AnnotationSurface : Grid
         animation.Completed += (_, _) =>
         {
             _fadingTexts.Remove(text);
-            _activeLayer.Texts.Children.Remove(text);
+            owner.Children.Remove(text);
         };
         text.BeginAnimation(OpacityProperty, animation);
     }

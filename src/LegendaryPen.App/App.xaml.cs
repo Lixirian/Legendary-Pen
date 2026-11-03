@@ -57,7 +57,7 @@ public partial class App : Application
         var monitors = Win32.GetMonitors();
         _pen = new PenState(_settings);
         _options = new LiveOptions(_settings);
-        _overlays = new OverlayManager(_state, _pen, histories, _options, new AnnotationStore(Path.Combine(
+        _overlays = new OverlayManager(_state, _pen, histories, new LayerStacks(), _options, new AnnotationStore(Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "Legendary Pen",
             "annotations")));

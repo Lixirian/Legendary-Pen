@@ -9,17 +9,19 @@ public sealed class OverlayManager
     private readonly AppState _state;
     private readonly PenState _pen;
     private readonly SurfaceHistories _histories;
+    private readonly LayerStacks _layerStacks;
     private readonly LiveOptions _options;
     private readonly AnnotationStore _annotations;
 
     private OverlayWindow? _keyboardOverlay;
     private IntPtr _toolbarHandle;
 
-    public OverlayManager(AppState state, PenState pen, SurfaceHistories histories, LiveOptions options, AnnotationStore annotations)
+    public OverlayManager(AppState state, PenState pen, SurfaceHistories histories, LayerStacks layerStacks, LiveOptions options, AnnotationStore annotations)
     {
         _state = state;
         _pen = pen;
         _histories = histories;
+        _layerStacks = layerStacks;
         _options = options;
         _annotations = annotations;
 
@@ -102,8 +104,7 @@ public sealed class OverlayManager
     public void ClearAll()
     {
         var cleared = _overlays.Values
-            .Select(overlay => overlay.TakeSnapshotOfCurrentSurface())
-            .OfType<SurfaceSnapshot>()
+            .SelectMany(overlay => overlay.TakeSnapshotOfCurrentSurface())
             .ToList();
 
         if (cleared.Count == 0)
@@ -120,7 +121,7 @@ public sealed class OverlayManager
     {
         OverlayWindow? overlay = null;
 
-        overlay = new OverlayWindow(monitor, _state, _pen, _histories, _options, () => BoardMonitor(), editing => OnTextEditing(overlay!, editing), () => ExcludeEffectsFromCapture())
+        overlay = new OverlayWindow(monitor, _state, _pen, _histories, _layerStacks, _options, () => BoardMonitor(), editing => OnTextEditing(overlay!, editing), () => ExcludeEffectsFromCapture())
         {
             ToolbarHandle = _toolbarHandle,
         };

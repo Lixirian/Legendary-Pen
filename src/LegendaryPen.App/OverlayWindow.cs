@@ -19,6 +19,7 @@ internal sealed class OverlayWindow : Window
     private readonly AppState _state;
     private readonly PenState _pen;
     private readonly SurfaceHistories _histories;
+    private readonly LayerStacks _layerStacks;
     private readonly LiveOptions _options;
     private readonly Func<string?> _boardMonitor;
     private readonly Action<bool> _textEditingChanged;
@@ -34,6 +35,7 @@ internal sealed class OverlayWindow : Window
         AppState state,
         PenState pen,
         SurfaceHistories histories,
+        LayerStacks layerStacks,
         LiveOptions options,
         Func<string?> boardMonitor,
         Action<bool> textEditingChanged,
@@ -43,6 +45,7 @@ internal sealed class OverlayWindow : Window
         _state = state;
         _pen = pen;
         _histories = histories;
+        _layerStacks = layerStacks;
         _options = options;
         _boardMonitor = boardMonitor;
         _textEditingChanged = textEditingChanged;
@@ -104,7 +107,7 @@ internal sealed class OverlayWindow : Window
         current.ApplyTool(VisualTreeHelper.GetDpi(this).DpiScaleX);
     }
 
-    public SurfaceSnapshot? TakeSnapshotOfCurrentSurface()
+    public IReadOnlyList<SurfaceSnapshot> TakeSnapshotOfCurrentSurface()
     {
         return GetSurface(EffectiveBackground).TakeSnapshotAndClearFading();
     }
@@ -269,7 +272,7 @@ internal sealed class OverlayWindow : Window
     {
         if (!_surfaces.TryGetValue(background, out var surface))
         {
-            surface = new AnnotationSurface(_state, _pen, _histories.For(background), _options, _textEditingChanged, FindTextUnder);
+            surface = new AnnotationSurface(_state, _pen, _histories.For(background), _layerStacks.For(background), _options, _textEditingChanged, FindTextUnder);
             _surfaces[background] = surface;
             _root.Children.Add(surface);
         }
