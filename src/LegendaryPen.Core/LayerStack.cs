@@ -1,7 +1,16 @@
 namespace LegendaryPen.Core;
 
-/// <summary>Un calque d'un fond : l'identifiant reste stable lors des déplacements.</summary>
-public sealed record LayerInfo(Guid Id, string Name, bool IsVisible);
+/// <summary>
+/// Un calque d'un fond : l'identifiant reste stable lors des déplacements.
+/// Le numéro n'est jamais réutilisé ; le nom suit la langue active.
+/// </summary>
+public sealed record LayerInfo(Guid Id, int Number, bool IsVisible)
+{
+    public string Name => Loc.T("Calque {0}", Number);
+}
+
+/// <summary>État complet d'une pile, pour l'annulation et la persistance.</summary>
+public sealed record LayerStackState(IReadOnlyList<LayerInfo> Layers, Guid ActiveId, int NextNumber);
 
 /// <summary>
 /// Pile de calques d'un fond. L'indice 0 est le calque du bas.
@@ -13,8 +22,8 @@ public sealed class LayerStack
 
     private readonly List<LayerInfo> _layers = [];
     private Guid _activeId;
-    // Compteur de noms propre à la pile, jamais décrémenté : un nom n'est pas réutilisé.
-    private int _nameCounter;
+    // Prochain numéro de calque, propre à la pile et jamais décrémenté : un numéro n'est pas réutilisé.
+    private int _nextNumber = 1;
 
     public LayerStack()
     {
@@ -25,7 +34,7 @@ public sealed class LayerStack
 
     public event Action? Changed;
 
-    public IReadOnlyList<LayerInfo> Layers => _layers;
+    public IReadOnlyList<LayerInfo> Layers => _layers.AsReadOnly();
 
     public LayerInfo Active => _layers[IndexOf(_activeId)];
 
@@ -73,20 +82,40 @@ public sealed class LayerStack
         Changed?.Invoke();
     }
 
-    /// <summary>Remet un calque retiré (annulation) avec son identifiant, son nom, sa visibilité et sa position.</summary>
-    public void Reinsert(LayerInfo layer, int index)
+    /// <summary>Copie de l'état complet, sûre à conserver.</summary>
+    public LayerStackState Capture() => new(_layers.ToList(), _activeId, _nextNumber);
+
+    /// <summary>Remplace l'état complet (annulation, chargement) ; <see cref="Changed"/> est levé une seule fois.</summary>
+    public void Restore(LayerStackState state)
     {
-        if (!CanAdd)
+        ArgumentNullException.ThrowIfNull(state);
+        var layers = state.Layers;
+        if (layers.Count is < 1 or > MaxLayers)
         {
-            throw new InvalidOperationException("The stack already holds the maximum number of layers.");
+            throw new ArgumentException("A stack holds between 1 and 8 layers.", nameof(state));
         }
 
-        if (_layers.Any(l => l.Id == layer.Id))
+        if (layers.Select(l => l.Id).Distinct().Count() != layers.Count)
         {
-            throw new InvalidOperationException("This layer is already in the stack.");
+            throw new ArgumentException("Layer ids must be unique.", nameof(state));
         }
 
-        _layers.Insert(Math.Clamp(index, 0, _layers.Count), layer);
+        var active = layers.FirstOrDefault(l => l.Id == state.ActiveId)
+            ?? throw new ArgumentException("The active layer is not in the stack.", nameof(state));
+        if (!active.IsVisible)
+        {
+            throw new ArgumentException("The active layer must be visible.", nameof(state));
+        }
+
+        if (layers.Any(l => l.Number >= state.NextNumber))
+        {
+            throw new ArgumentException("The next number must follow every layer number.", nameof(state));
+        }
+
+        _layers.Clear();
+        _layers.AddRange(layers);
+        _activeId = state.ActiveId;
+        _nextNumber = state.NextNumber;
         Changed?.Invoke();
     }
 
@@ -173,7 +202,7 @@ public sealed class LayerStack
         throw new InvalidOperationException("No visible layer.");
     }
 
-    private LayerInfo NewLayer() => new(Guid.NewGuid(), Loc.T("Calque {0}", ++_nameCounter), true);
+    private LayerInfo NewLayer() => new(Guid.NewGuid(), _nextNumber++, true);
 
     private int IndexOf(Guid id)
     {

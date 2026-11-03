@@ -187,25 +187,169 @@ public sealed class LayerStackTests : IDisposable
         Assert.Equal(top, stack.Active);
     }
 
+    private static void AssertSameState(LayerStackState expected, LayerStackState actual)
+    {
+        Assert.Equal(expected.Layers, actual.Layers);
+        Assert.Equal(expected.ActiveId, actual.ActiveId);
+        Assert.Equal(expected.NextNumber, actual.NextNumber);
+    }
+
     [Fact]
-    public void Reinserting_restores_position_and_name()
+    public void Capture_and_restore_round_trip_with_hidden_layers()
+    {
+        var stack = new LayerStack();
+        var bottom = stack.Active;
+        stack.Add();
+        stack.Add();
+        stack.SetVisible(bottom.Id, false);
+        var state = stack.Capture();
+
+        var other = new LayerStack();
+        other.Restore(state);
+
+        AssertSameState(state, other.Capture());
+        Assert.False(other.Layers[0].IsVisible);
+    }
+
+    [Fact]
+    public void Capture_returns_a_copy_that_later_changes_do_not_alter()
+    {
+        var stack = new LayerStack();
+        var state = stack.Capture();
+
+        stack.Add();
+
+        Assert.Single(state.Layers);
+    }
+
+    [Fact]
+    public void The_number_continues_after_a_restore()
+    {
+        var stack = new LayerStack();
+        stack.Add();
+        var third = stack.Add();
+        stack.Remove(third.Id);
+        var state = stack.Capture();
+
+        var other = new LayerStack();
+        other.Restore(state);
+
+        Assert.Equal("Calque 4", other.Add().Name);
+    }
+
+    [Fact]
+    public void A_full_stack_of_eight_can_be_restored()
+    {
+        var stack = new LayerStack();
+        for (var i = 1; i < LayerStack.MaxLayers; i++)
+        {
+            stack.Add();
+        }
+
+        var state = stack.Capture();
+        var other = new LayerStack();
+        other.Restore(state);
+
+        Assert.Equal(8, other.Layers.Count);
+        Assert.False(other.CanAdd);
+        AssertSameState(state, other.Capture());
+    }
+
+    public static TheoryData<string> InvalidStates() => ["empty", "nine", "duplicate", "unknown-active", "hidden-active"];
+
+    [Theory]
+    [MemberData(nameof(InvalidStates))]
+    public void Restore_refuses_an_invalid_state(string kind)
+    {
+        var stack = new LayerStack();
+        var before = stack.Capture();
+        var a = new LayerInfo(Guid.NewGuid(), 1, true);
+        var b = new LayerInfo(Guid.NewGuid(), 2, true);
+        var state = kind switch
+        {
+            "empty" => new LayerStackState([], Guid.NewGuid(), 1),
+            "nine" => new LayerStackState(
+                Enumerable.Range(1, 9).Select(n => new LayerInfo(Guid.NewGuid(), n, true)).ToList(), a.Id, 10),
+            "duplicate" => new LayerStackState([a, a with { Number = 2 }], a.Id, 3),
+            "unknown-active" => new LayerStackState([a, b], Guid.NewGuid(), 3),
+            _ => new LayerStackState([a with { IsVisible = false }, b], a.Id, 3),
+        };
+
+        Assert.Throws<ArgumentException>(() => stack.Restore(state));
+        AssertSameState(before, stack.Capture());
+    }
+
+    [Fact]
+    public void Restore_raises_changed_once()
+    {
+        var stack = new LayerStack();
+        stack.Add();
+        var state = stack.Capture();
+        var other = new LayerStack();
+        var changes = 0;
+        other.Changed += () => changes++;
+
+        other.Restore(state);
+
+        Assert.Equal(1, changes);
+    }
+
+    [Fact]
+    public void Undoing_the_removal_of_the_active_layer_restores_everything()
     {
         var stack = new LayerStack();
         var bottom = stack.Active;
         var middle = stack.Add();
         var top = stack.Add();
         stack.SetVisible(middle.Id, false);
-        var hidden = stack.Layers[1];
+        stack.Select(top.Id);
+        var before = stack.Capture();
+
+        stack.Remove(top.Id);
+        stack.Restore(before);
+
+        AssertSameState(before, stack.Capture());
+        Assert.Equal(top.Id, stack.Active.Id);
+        Assert.False(stack.Layers.Single(l => l.Id == middle.Id).IsVisible);
+        Assert.Equal(bottom.Id, stack.Layers[0].Id);
+    }
+
+    [Fact]
+    public void Removing_the_active_layer_shows_a_hidden_neighbor()
+    {
+        var stack = new LayerStack();
+        var bottom = stack.Active;
+        var top = stack.Add();
+        stack.SetVisible(bottom.Id, false);
+
+        stack.Remove(top.Id);
+
+        Assert.Equal(bottom.Id, stack.Active.Id);
+        Assert.True(stack.Active.IsVisible);
+    }
+
+    [Fact]
+    public void Hiding_the_bottom_active_layer_selects_upward()
+    {
+        var stack = new LayerStack();
+        var bottom = stack.Active;
+        var top = stack.Add();
         stack.Select(bottom.Id);
 
-        stack.Remove(middle.Id);
-        stack.Reinsert(hidden, 1);
+        stack.SetVisible(bottom.Id, false);
 
-        Assert.Equal([bottom.Id, middle.Id, top.Id], stack.Layers.Select(l => l.Id).ToArray());
-        Assert.Equal(hidden, stack.Layers[1]);
-        Assert.Equal("Calque 2", stack.Layers[1].Name);
-        Assert.Equal(bottom.Id, stack.Active.Id);
-        Assert.Equal("Calque 4", stack.Add().Name);
+        Assert.Equal(top.Id, stack.Active.Id);
+    }
+
+    [Fact]
+    public void A_name_follows_the_language()
+    {
+        var stack = new LayerStack();
+        Assert.Equal("Calque 1", stack.Active.Name);
+
+        Loc.Use(AppLanguage.English, "en");
+
+        Assert.Equal("Layer 1", stack.Active.Name);
     }
 
     [Fact]

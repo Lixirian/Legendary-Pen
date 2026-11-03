@@ -33,6 +33,11 @@ public sealed partial class LocalizationTests : IDisposable
         "This layer is already in the stack.",
         "No visible layer.",
         "Unknown layer.",
+        "A stack holds between 1 and 8 layers.",
+        "Layer ids must be unique.",
+        "The active layer is not in the stack.",
+        "The active layer must be visible.",
+        "The next number must follow every layer number.",
     ];
 
     public void Dispose() => Loc.Use(AppLanguage.French, "fr");
