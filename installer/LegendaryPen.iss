@@ -27,6 +27,7 @@ OutputBaseFilename=LegendaryPen-Setup-{#AppVersion}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\src\LegendaryPen.App\legendary-pen.ico
 UninstallDisplayIcon={app}\LegendaryPen.exe
 UninstallDisplayName=Legendary Pen
 CloseApplications=force

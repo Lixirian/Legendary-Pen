@@ -8,6 +8,7 @@ public sealed record MonitorArea(string DeviceName, PixelRect Bounds, PixelRect 
 /// <summary>Regroupe tous les appels Win32 de l'application.</summary>
 internal static partial class Win32
 {
+    public const int WmActivate = 0x0006;
     public const int WmHotKey = 0x0312;
     public const int WmDpiChanged = 0x02E0;
 
@@ -23,6 +24,7 @@ internal static partial class Win32
     private const int GwlExStyle = -20;
     private const long WsExTransparent = 0x00000020;
     private const long WsExToolWindow = 0x00000080;
+    private const long WsExAppWindow = 0x00040000;
     private const long WsExNoActivate = 0x08000000;
 
     private const uint SwpNoSize = 0x0001;
@@ -36,6 +38,12 @@ internal static partial class Win32
     public static void MakeFloatingToolWindow(IntPtr window)
     {
         SetExStyle(window, GetExStyle(window) | WsExToolWindow | WsExNoActivate);
+    }
+
+    /// <summary>Fenêtre qui ne prend pas le focus au clic mais garde son bouton dans la barre des tâches.</summary>
+    public static void MakeNonActivatingAppWindow(IntPtr window)
+    {
+        SetExStyle(window, (GetExStyle(window) | WsExAppWindow | WsExNoActivate) & ~WsExToolWindow);
     }
 
     public static void SetClickThrough(IntPtr window, bool enabled)

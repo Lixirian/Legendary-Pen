@@ -120,7 +120,7 @@ public partial class ToolbarWindow : Window
         base.OnSourceInitialized(e);
 
         _handle = new WindowInteropHelper(this).Handle;
-        Win32.MakeFloatingToolWindow(_handle);
+        Win32.MakeNonActivatingAppWindow(_handle);
         HwndSource.FromHwnd(_handle)!.AddHook(OnWindowMessage);
 
         Register(ToggleModeHotKey, Win32.ModControl | Win32.ModShift, Win32.VkSpace, "Ctrl+Maj+Espace");
@@ -133,6 +133,9 @@ public partial class ToolbarWindow : Window
         Win32.UnregisterGlobalHotKey(_handle, ToggleModeHotKey);
         SetDrawHotKeys(false);
         base.OnClosed(e);
+
+        // Fermée depuis la barre des tâches ou par Alt+F4 : sans elle, l'application serait inaccessible.
+        Application.Current.Shutdown();
     }
 
     // La taille finale n'est connue qu'après le premier rendu, car elle dépend du contenu.
@@ -357,6 +360,13 @@ public partial class ToolbarWindow : Window
 
     private IntPtr OnWindowMessage(IntPtr window, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        // Un clic sur le bouton de la barre des tâches ramène la barre devant les overlays.
+        if (message == Win32.WmActivate && wParam != IntPtr.Zero)
+        {
+            Win32.BringToTop(_handle);
+            return IntPtr.Zero;
+        }
+
         if (message != Win32.WmHotKey)
         {
             return IntPtr.Zero;
