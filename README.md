@@ -29,7 +29,7 @@ L'installeur n'étant pas signé par un certificat commercial, Windows SmartScre
 | Afficher ou masquer la barre | `Ctrl+Maj+F9` ou icône près de l'horloge |
 | Changer la taille | Molette |
 
-Tous les raccourcis se modifient dans les réglages. Seuls `Ctrl+Maj+Espace` et `Ctrl+Maj+F9` restent réservés en permanence. Les autres touches ne le sont qu'en mode Dessin, et sont libérées pendant la saisie d'un texte.
+Tous les raccourcis se modifient dans les réglages. Seuls `Ctrl+Maj+Espace` et `Ctrl+Maj+F9` restent réservés en permanence, avec ceux que l'on attribue au mode présentation. Les autres touches ne le sont qu'en mode Dessin, et sont libérées pendant la saisie d'un texte.
 
 Au relâchement, le surligneur devient un trait droit et se cale sur la ligne de texte située dessous. L'analyse de l'écran reste locale ; rien n'est enregistré ni envoyé. L'option se désactive dans les réglages.
 
@@ -38,6 +38,16 @@ En option (désactivée par défaut), une ligne, un rectangle ou une ellipse tra
 ## Langues
 
 L'interface est disponible en français et en anglais. Elle suit la langue de Windows, ou le choix fait dans les réglages, onglet Général.
+
+## Mode présentation
+
+Le bouton « Présentation » de la barre, aussi présent dans le menu de l'icône près de l'horloge, ouvre trois cases indépendantes :
+
+- **Projecteur** : le pointeur éclaire un disque, le reste de l'écran est assombri.
+- **Loupe** : un disque grossit la zone sous le pointeur. Elle reste visible dans un partage d'écran, ce que nous avons mesuré dans une capture Windows.Graphics.Capture.
+- **Effets de clic** : un anneau part de chaque clic, de la couleur du stylo pour le clic gauche et gris clair pour le clic droit.
+
+Aucun raccourci n'est attribué par défaut ; chacun se choisit dans les réglages. Les effets sont suspendus pendant une capture d'écran. Aucune position ni aucun clic n'est enregistré ou envoyé : le crochet souris ne sert qu'à dessiner l'anneau, et il n'est installé que lorsque les effets de clic sont activés.
 
 ## Signer un PDF
 

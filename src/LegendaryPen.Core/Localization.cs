@@ -204,6 +204,12 @@ public static class Translations
         ["Le raccourci {0} est déjà utilisé par une autre application. Les boutons de la barre restent disponibles, et les réglages permettent d'en choisir un autre."] = "The shortcut {0} is already used by another application. The toolbar buttons remain available, and you can choose another one in the settings.",
         ["Afficher ou masquer la barre"] = "Show or hide the toolbar",
 
+        // Mode présentation
+        ["Présentation"] = "Presentation",
+        ["Projecteur"] = "Spotlight",
+        ["Loupe"] = "Magnifier",
+        ["Effets de clic"] = "Click effects",
+
         // Mises à jour
         ["Mise à jour de Legendary Pen"] = "Legendary Pen update",
         ["L'application va se fermer puis redémarrer. Les annotations à l'écran seront perdues, sauf si l'option pour les retrouver est activée."] = "The application will close and restart. On-screen annotations will be lost, unless the option to restore them is on.",

@@ -72,8 +72,11 @@ public partial class App : Application
         };
         _annotationSaveTimer.Tick += (_, _) => SaveAnnotations();
         _overlays.UpdateMonitors(monitors);
-        _presenter = new PresentationManager(_presentation);
+        _presenter = new PresentationManager(_presentation, () => _pen.Color);
         _presenter.UpdateMonitors(monitors);
+
+        // Un changement de mode ou d'outil remonte les overlays : les effets doivent repasser au-dessus d'eux, sous la barre.
+        _state.Changed += _presenter.Raise;
 
         PixelPoint? savedPosition = _settings is { ToolbarX: { } x, ToolbarY: { } y } ? new PixelPoint(x, y) : null;
         _updates = UpdateService.IsEnabled ? new UpdateService() : null;
@@ -89,7 +92,8 @@ public partial class App : Application
             ToolbarDocking.Sanitize(_settings.ToolbarDock),
             _settings.ToolbarDockMonitor,
             ToolbarDocking.CollapseDelay(_settings.ToolbarCollapseSeconds),
-            new HotkeyMap(_settings.Hotkeys));
+            new HotkeyMap(_settings.Hotkeys),
+            _presentation);
         _overlays.BoardMonitor = () => _toolbar.CurrentMonitorName;
         _toolbar.CaptureRequested += RequestCapture;
         _toolbar.SettingsRequested += RequestSettings;
@@ -110,7 +114,7 @@ public partial class App : Application
         _overlays.KeepBelowToolbar(toolbarHandle);
         _presenter.KeepBelowToolbar(toolbarHandle);
 
-        _tray = new TrayIcon(_toolbar.ToggleBarVisibility, RequestCapture, RequestSignPdf, RequestSettings, Shutdown);
+        _tray = new TrayIcon(_toolbar.ToggleBarVisibility, RequestCapture, RequestSignPdf, _presentation, RequestSettings, Shutdown);
 
         _pen.Changed += RestartSaveTimer;
         _state.Changed += () =>

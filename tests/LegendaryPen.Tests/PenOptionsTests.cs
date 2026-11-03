@@ -77,7 +77,8 @@ public class PreviousColorTests
     {
         Assert.Contains(HotkeyCatalog.All, definition => definition.Action == HotkeyAction.PreviousColor);
 
-        var bindings = HotkeyCatalog.All.Select(definition => definition.Default).ToList();
+        // Plusieurs raccourcis peuvent n'être attribués à rien : seuls les raccourcis réels ne doivent pas se recouper.
+        var bindings = HotkeyCatalog.All.Select(definition => definition.Default).Where(binding => !binding.IsNone).ToList();
         Assert.Equal(bindings.Count, bindings.Distinct().Count());
     }
 }

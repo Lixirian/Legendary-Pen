@@ -15,6 +15,8 @@ internal static partial class Win32
     public const int WmWindowPosChanging = 0x0046;
     public const int WmHotKey = 0x0312;
     public const int WmDpiChanged = 0x02E0;
+    public const int WmLButtonDown = 0x0201;
+    public const int WmRButtonDown = 0x0204;
 
     public const uint ModControl = 0x0002;
     public const uint ModShift = 0x0004;
@@ -52,6 +54,9 @@ internal static partial class Win32
     private const int SwHide = 0;
     private const int SwShowNoActivate = 4;
     private const uint PmRemove = 0x0001;
+    private const uint PmNoRemove = 0x0000;
+    private const uint WmQuit = 0x0012;
+    private const int WhMouseLl = 14;
     private const uint QsAllInput = 0x04FF;
     private const uint WaitObject0 = 0;
     private const uint MagnifierFilterExclude = 0;
@@ -174,6 +179,42 @@ internal static partial class Win32
         GetCursorPos(out var point);
         return new PixelPoint(point.X, point.Y);
     }
+
+    /// <summary>Rappel du crochet souris de bas niveau. Il doit rester minimal : Windows le surveille de près.</summary>
+    public delegate IntPtr MouseHookProcedure(int code, IntPtr wParam, IntPtr lParam);
+
+    /// <summary>Installe un crochet souris global sur le fil appelant. Renvoie zéro en cas d'échec.</summary>
+    public static IntPtr InstallMouseHook(MouseHookProcedure procedure)
+    {
+        return SetWindowsHookExW(WhMouseLl, Marshal.GetFunctionPointerForDelegate(procedure), GetModuleHandleW(null), 0);
+    }
+
+    public static void RemoveHook(IntPtr hook) => UnhookWindowsHookEx(hook);
+
+    public static IntPtr CallNextHook(int code, IntPtr wParam, IntPtr lParam) => CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
+
+    /// <summary>Position du clic dans une structure MSLLHOOKSTRUCT, dont le premier champ est le point en pixels physiques.</summary>
+    public static PixelPoint ReadHookPoint(IntPtr lParam)
+    {
+        return new PixelPoint(Marshal.ReadInt32(lParam, 0), Marshal.ReadInt32(lParam, 4));
+    }
+
+    public static uint CurrentThreadId() => GetCurrentThreadId();
+
+    /// <summary>Crée la file de messages du fil appelant, afin que PostQuit puisse l'atteindre.</summary>
+    public static void CreateMessageQueue() => PeekMessageW(out _, IntPtr.Zero, 0, 0, PmNoRemove);
+
+    /// <summary>Boucle de messages du fil appelant, jusqu'à PostQuit. Un crochet de bas niveau n'est appelé que par elle.</summary>
+    public static void RunMessageLoop()
+    {
+        while (GetMessageW(out var message, IntPtr.Zero, 0, 0) > 0)
+        {
+            TranslateMessage(message);
+            DispatchMessageW(message);
+        }
+    }
+
+    public static void PostQuit(uint threadId) => PostThreadMessageW(threadId, WmQuit, IntPtr.Zero, IntPtr.Zero);
 
     public static PixelRect GetBounds(IntPtr window)
     {
@@ -432,6 +473,26 @@ internal static partial class Win32
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool PeekMessageW(out NativeMessage message, IntPtr window, uint filterMin, uint filterMax, uint remove);
+
+    [LibraryImport("user32.dll", EntryPoint = "SetWindowsHookExW")]
+    private static partial IntPtr SetWindowsHookExW(int hookType, IntPtr procedure, IntPtr module, uint threadId);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool UnhookWindowsHookEx(IntPtr hook);
+
+    [LibraryImport("user32.dll")]
+    private static partial IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr wParam, IntPtr lParam);
+
+    [LibraryImport("user32.dll")]
+    private static partial int GetMessageW(out NativeMessage message, IntPtr window, uint filterMin, uint filterMax);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool PostThreadMessageW(uint threadId, uint message, IntPtr wParam, IntPtr lParam);
+
+    [LibraryImport("kernel32.dll")]
+    private static partial uint GetCurrentThreadId();
 
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

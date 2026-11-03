@@ -91,6 +91,59 @@
             </Setter>
         </Style>
 
+        <!-- Menu du bouton Présentation : mêmes couleurs que le menu de l'icône de notification. -->
+        <Style x:Key="PresentationMenuStyle" TargetType="ContextMenu">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContextMenu">
+                        <Border Background="#FF202124" BorderBrush="#FF46474B" BorderThickness="1" Padding="2">
+                            <ItemsPresenter />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PresentationMenuItemStyle" TargetType="MenuItem">
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Border x:Name="Surface" Background="Transparent" Padding="8,6">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="22" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="Check"
+                                           Text="&#xE73E;"
+                                           FontFamily="Segoe MDL2 Assets"
+                                           FontSize="12"
+                                           Visibility="Hidden"
+                                           VerticalAlignment="Center" />
+                                <ContentPresenter Grid.Column="1" ContentSource="Header" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="2"
+                                           Margin="24,0,0,0"
+                                           Text="{TemplateBinding InputGestureText}"
+                                           Foreground="#FFA8A8AE"
+                                           VerticalAlignment="Center" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Check" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Surface" Property="Background" Value="#FFE53935" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style TargetType="ToggleButton" BasedOn="{StaticResource ToolButtonBase}">
             <Style.Triggers>
                 <Trigger Property="IsChecked" Value="True">
@@ -322,6 +375,11 @@
                     ToolTip="Signer un PDF"
                     AutomationProperties.Name="Signer un PDF"
                     Click="OnSignPdfClicked" />
+            <Button x:Name="PresentationButton"
+                    Content="&#xE7F4;"
+                    ToolTip="Présentation"
+                    AutomationProperties.Name="Présentation"
+                    Click="OnPresentationClicked" />
             <Button x:Name="OrientationButton"
                     Content="&#xE7AD;"
                     AutomationProperties.Name="Changer l'orientation de la barre"

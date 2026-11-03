@@ -28,6 +28,7 @@ public partial class ToolbarWindow : Window
     private readonly PenState _pen;
     private readonly SurfaceHistories _histories;
     private readonly OverlayManager _overlays;
+    private readonly PresentationState _presentation;
     private readonly UpdateService? _updates;
     private readonly PixelPoint? _savedPosition;
     private readonly List<ToggleButton> _swatches = [];
@@ -35,6 +36,8 @@ public partial class ToolbarWindow : Window
     private readonly Dictionary<HotkeyAction, Action> _hotkeyActions;
     private readonly ToggleButton[] _sizeButtons;
     private readonly ToggleButton[] _toolButtons;
+    private readonly ContextMenu _presentationMenu = new();
+    private readonly List<(MenuItem Item, HotkeyAction Action, Func<bool> IsOn)> _presentationItems = [];
 
     private TimeSpan _collapseDelay;
     private HotkeyMap _hotkeys;
@@ -64,7 +67,8 @@ public partial class ToolbarWindow : Window
         ToolbarDock dock,
         string? dockMonitor,
         TimeSpan collapseDelay,
-        HotkeyMap hotkeys)
+        HotkeyMap hotkeys,
+        PresentationState presentation)
     {
         _hotkeys = hotkeys;
         IsVertical = vertical;
@@ -75,6 +79,7 @@ public partial class ToolbarWindow : Window
         _pen = pen;
         _histories = histories;
         _overlays = overlays;
+        _presentation = presentation;
         _updates = updates;
         _monitors = monitors;
         _savedPosition = savedPosition;
@@ -84,6 +89,7 @@ public partial class ToolbarWindow : Window
         _sizeButtons = [SmallSizeButton, MediumSizeButton, LargeSizeButton];
         _toolButtons = [PenButton, HighlighterButton, EraserButton, LineButton, ArrowButton, RectangleButton, EllipseButton, TextButton];
         _hotkeyActions = CreateHotkeyActions();
+        CreatePresentationMenu();
         ApplyHotkeyTooltips();
         CreateSwatches();
         ExpandIcon.Source = LoadApplicationIcon();
@@ -91,6 +97,7 @@ public partial class ToolbarWindow : Window
         _collapseTimer.Tick += OnCollapseTimerTick;
 
         _state.Changed += Refresh;
+        _presentation.Changed += Refresh;
         _pen.Changed += Refresh;
         _histories.Changed += Refresh;
         _overlays.TextEditingChanged += Refresh;
@@ -542,6 +549,7 @@ public partial class ToolbarWindow : Window
             ? new SolidColorBrush(Color.FromRgb(previous.R, previous.G, previous.B))
             : Brushes.Transparent;
         PreviousColorDot.Opacity = _pen.PreviousColor is null ? 0.3 : 1;
+        PresentationButton.Background = _presentation.AnyActive ? (Brush)FindResource("SelectedBrush") : Brushes.Transparent;
 
         _refreshing = false;
 
@@ -672,6 +680,9 @@ public partial class ToolbarWindow : Window
             [HotkeyAction.Fading] = _state.ToggleFading,
             [HotkeyAction.HideAnnotations] = _state.ToggleAnnotations,
             [HotkeyAction.Capture] = () => CaptureRequested?.Invoke(),
+            [HotkeyAction.Spotlight] = _presentation.ToggleSpotlight,
+            [HotkeyAction.Magnifier] = _presentation.ToggleMagnifier,
+            [HotkeyAction.ClickEffects] = _presentation.ToggleClickEffects,
         };
     }
 
@@ -703,6 +714,51 @@ public partial class ToolbarWindow : Window
         Tip(HideButton, "Masquer les annotations", HotkeyAction.HideAnnotations);
         Tip(CaptureButton, "Capture d'écran", HotkeyAction.Capture);
         Tip(PreviousColorButton, "Couleur précédente", HotkeyAction.PreviousColor);
+
+        // Les trois effets de présentation affichent leur raccourci, quand il y en a un, dans le menu du bouton.
+        foreach (var (item, action, _) in _presentationItems)
+        {
+            item.InputGestureText = _hotkeys[action] is { IsNone: false } binding ? binding.Format() : string.Empty;
+        }
+    }
+
+    // Les cases se synchronisent à l'ouverture : un raccourci ou l'icône de notification ont pu changer l'état entre-temps.
+    private void CreatePresentationMenu()
+    {
+        _presentationMenu.Style = (Style)FindResource("PresentationMenuStyle");
+        _presentationMenu.PlacementTarget = PresentationButton;
+
+        void Add(string text, HotkeyAction action, Action toggle, Func<bool> isOn)
+        {
+            var item = new MenuItem
+            {
+                Header = text,
+                IsCheckable = true,
+                Style = (Style)FindResource("PresentationMenuItemStyle"),
+            };
+            item.Click += (_, _) => toggle();
+            _presentationItems.Add((item, action, isOn));
+            _presentationMenu.Items.Add(item);
+        }
+
+        Add(Loc.T("Projecteur"), HotkeyAction.Spotlight, _presentation.ToggleSpotlight, () => _presentation.SpotlightOn);
+        Add(Loc.T("Loupe"), HotkeyAction.Magnifier, _presentation.ToggleMagnifier, () => _presentation.MagnifierOn);
+        Add(Loc.T("Effets de clic"), HotkeyAction.ClickEffects, _presentation.ToggleClickEffects, () => _presentation.ClickEffectsOn);
+
+        _presentationMenu.Opened += (_, _) =>
+        {
+            foreach (var (item, _, isOn) in _presentationItems)
+            {
+                item.IsChecked = isOn();
+            }
+        };
+    }
+
+    private void OnPresentationClicked(object sender, RoutedEventArgs e)
+    {
+        // Verticale, la barre ouvre son menu à côté ; Windows le ramène dans l'écran s'il n'y a pas la place.
+        _presentationMenu.Placement = EffectiveVertical ? PlacementMode.Right : PlacementMode.Bottom;
+        _presentationMenu.IsOpen = true;
     }
 
     private void Register(int id, HotkeyBinding binding)

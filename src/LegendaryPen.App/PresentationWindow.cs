@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -9,7 +10,11 @@ namespace LegendaryPen.App;
 /// <summary>Fenêtre transparente, traversable par les clics, qui porte les effets du mode présentation sur un écran.</summary>
 internal sealed class PresentationWindow : Window
 {
+    private const int MaxRipples = 8;
+    private const double RippleThickness = 4;
+
     private readonly EffectsLayer _layer = new();
+    private readonly List<Ripple> _ripples = [];
 
     private MonitorArea _monitor;
     private IntPtr _handle;
@@ -41,6 +46,30 @@ internal sealed class PresentationWindow : Window
         }
     }
 
+    /// <summary>Vrai si ce point, en pixels physiques, tombe sur l'écran de cette fenêtre.</summary>
+    public bool Contains(PixelPoint point) => Covers(_monitor.Bounds, point);
+
+    /// <summary>Lance un anneau à la position du clic. Au-delà de huit anneaux vivants, le plus ancien disparaît.</summary>
+    public void AddRipple(PixelPoint point, Color color)
+    {
+        if (_ripples.Count >= MaxRipples)
+        {
+            _ripples.RemoveAt(0);
+        }
+
+        _ripples.Add(new Ripple(point, color, Stopwatch.GetTimestamp()));
+    }
+
+    /// <summary>Vrai tant qu'un anneau est vivant : l'animation doit alors continuer.</summary>
+    public bool HasRipples => _ripples.Count > 0;
+
+    /// <summary>Abandonne les anneaux en cours, par exemple quand les effets de clic s'éteignent.</summary>
+    public void ClearRipples()
+    {
+        _ripples.Clear();
+        _layer.DrawRipples([]);
+    }
+
     public void UpdateMonitor(MonitorArea monitor)
     {
         _monitor = monitor;
@@ -56,15 +85,39 @@ internal sealed class PresentationWindow : Window
     {
         var bounds = _monitor.Bounds;
         var dpi = VisualTreeHelper.GetDpi(this);
-        var onThisScreen = pointer.X >= bounds.Left && pointer.X < bounds.Right
-            && pointer.Y >= bounds.Top && pointer.Y < bounds.Bottom;
 
         // Chaque écran peut avoir sa propre échelle : le centre se calcule avec le DPI de cette fenêtre.
-        var center = onThisScreen
+        var center = Covers(bounds, pointer)
             ? new Point((pointer.X - bounds.Left) / dpi.DpiScaleX, (pointer.Y - bounds.Top) / dpi.DpiScaleY)
             : (Point?)null;
 
         _layer.Draw(spotlight, center);
+        RenderRipples(bounds, dpi);
+    }
+
+    private void RenderRipples(PixelRect bounds, DpiScale dpi)
+    {
+        var now = Stopwatch.GetTimestamp();
+
+        _ripples.RemoveAll(ripple => Stopwatch.GetElapsedTime(ripple.Start, now).TotalMilliseconds >= PresentationGeometry.RippleDuration);
+
+        var rings = new List<RippleRing>(_ripples.Count);
+
+        foreach (var ripple in _ripples)
+        {
+            var shape = PresentationGeometry.RippleAt(Stopwatch.GetElapsedTime(ripple.Start, now).TotalMilliseconds);
+            var center = new Point((ripple.Position.X - bounds.Left) / dpi.DpiScaleX, (ripple.Position.Y - bounds.Top) / dpi.DpiScaleY);
+
+            // Le rayon est en pixels physiques : la même taille à l'écran quel que soit l'échelle de cet écran.
+            rings.Add(new RippleRing(center, shape.Radius / dpi.DpiScaleX, shape.Opacity, ripple.Color, RippleThickness / dpi.DpiScaleX));
+        }
+
+        _layer.DrawRipples(rings);
+    }
+
+    private static bool Covers(PixelRect bounds, PixelPoint point)
+    {
+        return point.X >= bounds.Left && point.X < bounds.Right && point.Y >= bounds.Top && point.Y < bounds.Bottom;
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -100,7 +153,11 @@ internal sealed class PresentationWindow : Window
         return IntPtr.Zero;
     }
 
-    /// <summary>Un seul élément dessiné à la main : pas d'éléments de mise en page, d'autres calques viendront s'y ajouter.</summary>
+    private readonly record struct Ripple(PixelPoint Position, Color Color, long Start);
+
+    private readonly record struct RippleRing(Point Center, double Radius, double Opacity, Color Color, double Thickness);
+
+    /// <summary>Un seul élément dessiné à la main : pas d'éléments de mise en page. Le voile et les anneaux ont chacun leur visuel : animer un anneau ne redessine pas le voile.</summary>
     private sealed class EffectsLayer : FrameworkElement
     {
         private const double VeilOpacity = 0.6;
@@ -112,9 +169,11 @@ internal sealed class PresentationWindow : Window
         private static readonly Brush Veil = CreateVeil();
 
         private readonly DrawingVisual _spotlightVisual = new();
+        private readonly DrawingVisual _ripplesVisual = new();
         private readonly RadialGradientBrush _hole = CreateHole();
 
         private bool _spotlightDrawn;
+        private bool _ripplesDrawn;
         private Point? _lastCenter;
         private Size _lastSize;
 
@@ -122,11 +181,13 @@ internal sealed class PresentationWindow : Window
         {
             IsHitTestVisible = false;
             AddVisualChild(_spotlightVisual);
+            AddVisualChild(_ripplesVisual);
         }
 
-        protected override int VisualChildrenCount => 1;
+        protected override int VisualChildrenCount => 2;
 
-        protected override Visual GetVisualChild(int index) => _spotlightVisual;
+        // Les anneaux passent au-dessus du voile.
+        protected override Visual GetVisualChild(int index) => index == 0 ? _spotlightVisual : _ripplesVisual;
 
         public void Draw(bool spotlight, Point? center)
         {
@@ -159,6 +220,29 @@ internal sealed class PresentationWindow : Window
             _hole.Center = point;
             _hole.GradientOrigin = point;
             context.DrawRectangle(_hole, null, area);
+        }
+
+        /// <summary>Dessine les anneaux. Sans anneau, rien n'est redessiné sauf pour effacer le dernier.</summary>
+        public void DrawRipples(IReadOnlyList<RippleRing> rings)
+        {
+            if (rings.Count == 0 && !_ripplesDrawn)
+            {
+                return;
+            }
+
+            _ripplesDrawn = rings.Count > 0;
+
+            using var context = _ripplesVisual.RenderOpen();
+
+            foreach (var ring in rings)
+            {
+                var alpha = (byte)Math.Round(255 * ring.Opacity);
+                var brush = new SolidColorBrush(Color.FromArgb(alpha, ring.Color.R, ring.Color.G, ring.Color.B));
+                brush.Freeze();
+                var pen = new Pen(brush, ring.Thickness);
+                pen.Freeze();
+                context.DrawEllipse(null, pen, ring.Center, ring.Radius, ring.Radius);
+            }
         }
 
         public void Invalidate()

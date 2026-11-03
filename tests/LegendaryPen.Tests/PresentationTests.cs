@@ -119,4 +119,32 @@ public class PresentationTests
     {
         Assert.Equal(0, PresentationGeometry.RippleAt(900).Opacity);
     }
+
+    [Fact]
+    public void Presentation_shortcuts_are_global_and_unassigned()
+    {
+        var actions = new[] { HotkeyAction.Spotlight, HotkeyAction.Magnifier, HotkeyAction.ClickEffects };
+
+        foreach (var action in actions)
+        {
+            var definition = HotkeyCatalog.All.Single(candidate => candidate.Action == action);
+
+            Assert.Equal(HotkeyBinding.None, definition.Default);
+            Assert.True(definition.IsGlobal);
+            Assert.True(new HotkeyMap()[action].IsNone);
+        }
+    }
+
+    [Fact]
+    public void Unassigned_presentation_shortcuts_raise_no_issue_and_an_assigned_one_is_checked()
+    {
+        Assert.Empty(new HotkeyMap().Validate());
+
+        var assigned = new HotkeyMap().With(HotkeyAction.Spotlight, HotkeyBinding.Letter('S', HotkeyBinding.Control | HotkeyBinding.Shift));
+        var bare = new HotkeyMap().With(HotkeyAction.Magnifier, HotkeyBinding.Letter('M'));
+
+        Assert.Empty(assigned.Validate());
+        Assert.False(assigned[HotkeyAction.Spotlight].IsNone);
+        Assert.Single(bare.Validate());
+    }
 }

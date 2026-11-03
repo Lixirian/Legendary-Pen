@@ -6,20 +6,26 @@ namespace LegendaryPen.App;
 /// <summary>Une fenêtre par écran pour les effets de présentation, actives seulement quand un effet l'est.</summary>
 internal sealed class PresentationManager : IDisposable
 {
+    private static readonly Color RightClickColor = Color.FromRgb(0xD0, 0xD0, 0xD0);
+
     private readonly PresentationState _state;
+    private readonly Func<InkColor> _leftClickColor;
     private readonly Dictionary<string, PresentationWindow> _windows = [];
     private readonly HashSet<string> _connected = [];
 
     private IReadOnlyList<MonitorArea> _monitors = [];
     private MagnifierWindow? _magnifier;
+    private MouseClickHook? _clickHook;
     private IntPtr _toolbarHandle;
     private bool _suspended;
     private bool _subscribed;
     private bool _disposed;
 
-    public PresentationManager(PresentationState state)
+    /// <param name="leftClickColor">Couleur de l'anneau du clic gauche, lue à chaque clic : celle du stylo.</param>
+    public PresentationManager(PresentationState state, Func<InkColor> leftClickColor)
     {
         _state = state;
+        _leftClickColor = leftClickColor;
         _state.Changed += Apply;
     }
 
@@ -63,6 +69,23 @@ internal sealed class PresentationManager : IDisposable
         }
     }
 
+    /// <summary>Remonte les fenêtres juste sous la barre d'outils, après un changement d'empilement des overlays.</summary>
+    public void Raise()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        foreach (var window in _windows.Values)
+        {
+            if (window.IsVisible)
+            {
+                window.Raise();
+            }
+        }
+    }
+
     /// <summary>Met les effets en pause, par exemple pendant une capture.</summary>
     public void Suspend()
     {
@@ -86,6 +109,7 @@ internal sealed class PresentationManager : IDisposable
         _disposed = true;
         _state.Changed -= Apply;
         SetSubscribed(false);
+        SetClickHook(false);
 
         foreach (var window in _windows.Values)
         {
@@ -129,12 +153,14 @@ internal sealed class PresentationManager : IDisposable
             }
         }
 
-        SetSubscribed(run);
+        SetClickHook(run && _state.ClickEffectsOn);
 
         if (run)
         {
             RenderFrame();
         }
+
+        SetSubscribed(run && NeedsFrames());
 
         if (run && _state.MagnifierOn)
         {
@@ -165,7 +191,18 @@ internal sealed class PresentationManager : IDisposable
         }
     }
 
-    private void OnRendering(object? sender, EventArgs e) => RenderFrame();
+    // Le suivi du pointeur ne sert qu'au projecteur, et l'animation qu'à un anneau vivant : un écran immobile ne redessine rien.
+    private bool NeedsFrames() => _state.SpotlightOn || _windows.Values.Any(window => window.HasRipples);
+
+    private void OnRendering(object? sender, EventArgs e)
+    {
+        RenderFrame();
+
+        if (!NeedsFrames())
+        {
+            SetSubscribed(false);
+        }
+    }
 
     private void RenderFrame()
     {
@@ -177,6 +214,59 @@ internal sealed class PresentationManager : IDisposable
             {
                 window.Render(pointer, _state.SpotlightOn);
             }
+        }
+    }
+
+    // Le crochet n'existe que pendant que les effets de clic sont actifs.
+    private void SetClickHook(bool installed)
+    {
+        if (installed == (_clickHook is not null))
+        {
+            return;
+        }
+
+        if (installed)
+        {
+            _clickHook = new MouseClickHook(OnClickHookUnavailable);
+            _clickHook.Clicked += OnClicked;
+            return;
+        }
+
+        _clickHook!.Clicked -= OnClicked;
+        _clickHook.Dispose();
+        _clickHook = null;
+
+        foreach (var window in _windows.Values)
+        {
+            window.ClearRipples();
+        }
+    }
+
+    private void OnClicked(PixelPoint point, bool isRight)
+    {
+        var window = _windows.Where(pair => _connected.Contains(pair.Key)).Select(pair => pair.Value).FirstOrDefault(candidate => candidate.IsVisible && candidate.Contains(point));
+
+        if (window is null)
+        {
+            return;
+        }
+
+        window.AddRipple(point, isRight ? RightClickColor : ToColor(_leftClickColor()));
+        window.Render(Win32.GetPointer(), _state.SpotlightOn);
+        SetSubscribed(true);
+    }
+
+    private static Color ToColor(InkColor color) => Color.FromRgb(color.R, color.G, color.B);
+
+    // Windows a refusé le crochet : les effets de clic s'éteignent, une seule fois.
+    private void OnClickHookUnavailable()
+    {
+        _clickHook?.Dispose();
+        _clickHook = null;
+
+        if (!_disposed && _state.ClickEffectsOn)
+        {
+            _state.ToggleClickEffects();
         }
     }
 

@@ -10,12 +10,13 @@ internal sealed class TrayIcon : IDisposable
     private readonly Forms.NotifyIcon _icon;
     private Action? _notificationClicked;
 
-    public TrayIcon(Action toggleToolbar, Action capture, Action signPdf, Action settings, Action quit)
+    public TrayIcon(Action toggleToolbar, Action capture, Action signPdf, PresentationState presentation, Action settings, Action quit)
     {
         var menu = new Forms.ContextMenuStrip
         {
             Renderer = new Forms.ToolStripProfessionalRenderer(new DarkMenuColors()) { RoundedEdges = false },
             ShowImageMargin = false,
+            ShowCheckMargin = true,
             BackColor = DarkMenuColors.Surface,
             ForeColor = System.Drawing.Color.White,
             Font = new System.Drawing.Font("Segoe UI", 10f),
@@ -23,6 +24,33 @@ internal sealed class TrayIcon : IDisposable
         menu.Items.Add(Loc.T("Afficher ou masquer la barre"), null, (_, _) => toggleToolbar());
         menu.Items.Add(Loc.T("Capture d'écran"), null, (_, _) => capture());
         menu.Items.Add(Loc.T("Signer un PDF"), null, (_, _) => signPdf());
+        menu.Items.Add(new Forms.ToolStripSeparator { BackColor = DarkMenuColors.Surface, ForeColor = DarkMenuColors.Line });
+
+        // Les cases reflètent l'état à l'ouverture : la barre ou un raccourci ont pu le changer entre-temps.
+        var effects = new (string Text, Action Toggle, Func<bool> IsOn)[]
+        {
+            (Loc.T("Projecteur"), presentation.ToggleSpotlight, () => presentation.SpotlightOn),
+            (Loc.T("Loupe"), presentation.ToggleMagnifier, () => presentation.MagnifierOn),
+            (Loc.T("Effets de clic"), presentation.ToggleClickEffects, () => presentation.ClickEffectsOn),
+        };
+        var effectItems = new List<(Forms.ToolStripMenuItem Item, Func<bool> IsOn)>();
+
+        foreach (var (text, toggle, isOn) in effects)
+        {
+            var item = new Forms.ToolStripMenuItem(text, null, (_, _) => toggle());
+            effectItems.Add((item, isOn));
+            menu.Items.Add(item);
+        }
+
+        menu.Opening += (_, _) =>
+        {
+            foreach (var (item, isOn) in effectItems)
+            {
+                item.Checked = isOn();
+            }
+        };
+
+        menu.Items.Add(new Forms.ToolStripSeparator { BackColor = DarkMenuColors.Surface, ForeColor = DarkMenuColors.Line });
         menu.Items.Add(Loc.T("Réglages"), null, (_, _) => settings());
         menu.Items.Add(new Forms.ToolStripSeparator { BackColor = DarkMenuColors.Surface, ForeColor = DarkMenuColors.Line });
         menu.Items.Add(Loc.T("Quitter"), null, (_, _) => quit());
@@ -82,6 +110,12 @@ internal sealed class DarkMenuColors : Forms.ProfessionalColorTable
     public override System.Drawing.Color MenuItemBorder => Accent;
 
     public override System.Drawing.Color MenuItemSelected => Accent;
+
+    public override System.Drawing.Color CheckBackground => Accent;
+
+    public override System.Drawing.Color CheckSelectedBackground => Accent;
+
+    public override System.Drawing.Color CheckPressedBackground => Accent;
 
     public override System.Drawing.Color SeparatorDark => Line;
 
