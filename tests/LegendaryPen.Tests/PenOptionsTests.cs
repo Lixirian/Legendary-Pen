@@ -299,4 +299,37 @@ public sealed class AnnotationStoreTests : IDisposable
         options.Apply(new AppSettings { KeepAnnotations = true });
         Assert.True(options.KeepAnnotations);
     }
+
+    [Fact]
+    public void Shape_recognition_is_off_by_default() => Assert.False(new AppSettings().ShapeRecognitionEnabled);
+
+    [Fact]
+    public void Live_options_follow_shape_recognition()
+    {
+        var options = new LiveOptions(new AppSettings());
+        Assert.False(options.ShapeRecognitionEnabled);
+
+        options.Apply(new AppSettings { ShapeRecognitionEnabled = true });
+        Assert.True(options.ShapeRecognitionEnabled);
+    }
+
+    [Fact]
+    public void Old_settings_keep_shape_recognition_off()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"legendarypen-{Guid.NewGuid():N}.json");
+
+        try
+        {
+            File.WriteAllText(path, "{ \"HighlightSnapEnabled\": false }");
+
+            var loaded = new SettingsStore(path).Load();
+
+            Assert.False(loaded.ShapeRecognitionEnabled);
+            Assert.False(loaded.HighlightSnapEnabled);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

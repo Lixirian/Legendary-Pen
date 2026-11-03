@@ -31,7 +31,7 @@ L'installeur n'étant pas signé par un certificat commercial, Windows SmartScre
 
 Tous les raccourcis se modifient dans les réglages. Seuls `Ctrl+Maj+Espace` et `Ctrl+Maj+F9` restent réservés en permanence. Les autres touches ne le sont qu'en mode Dessin, et sont libérées pendant la saisie d'un texte.
 
-Au relâchement, le surligneur devient un trait droit et se cale sur la ligne de texte située dessous. L'analyse de l'écran reste locale ; rien n'est enregistré ni envoyé. L'option se désactive dans les réglages.
+Au relâchement, le surligneur devient un trait droit et se cale sur la ligne de texte située dessous. L'analyse de l'écran reste locale ; rien n'est enregistré ni envoyé. L'option se désactive dans les réglages. En option (désactivée par défaut), une ligne, un rectangle ou une ellipse tracés au stylo sont remplacés par la forme nette ; un premier Ctrl+Z rend le tracé brut.
 
 ## Langues
 

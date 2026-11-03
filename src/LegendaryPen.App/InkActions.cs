@@ -18,6 +18,22 @@ internal sealed class RemoveStrokeAction(InkCanvas canvas, Stroke stroke) : IUnd
     public void Redo() => canvas.Strokes.Remove(stroke);
 }
 
+/// <summary>Remplace un tracé brut par la forme reconnue : Annuler rend le tracé brut, un second Annuler le retire.</summary>
+internal sealed class ReplaceStrokeAction(InkCanvas canvas, Stroke original, Stroke replacement) : IUndoableAction
+{
+    public void Undo()
+    {
+        canvas.Strokes.Remove(replacement);
+        canvas.Strokes.Add(original);
+    }
+
+    public void Redo()
+    {
+        canvas.Strokes.Remove(original);
+        canvas.Strokes.Add(replacement);
+    }
+}
+
 internal sealed class AddTextAction(Canvas layer, TextBlock text) : IUndoableAction
 {
     public void Undo() => layer.Children.Remove(text);

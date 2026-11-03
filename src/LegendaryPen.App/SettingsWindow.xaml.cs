@@ -41,6 +41,7 @@ public partial class SettingsWindow : Window
         WheelBox.IsChecked = settings.WheelChangesSize;
         PressureBox.IsChecked = settings.PressureEnabled;
         HighlightSnapBox.IsChecked = settings.HighlightSnapEnabled;
+        ShapeRecognitionBox.IsChecked = settings.ShapeRecognitionEnabled;
         SizePerToolBox.IsChecked = settings.SizePerToolEnabled;
         KeepAnnotationsBox.IsChecked = settings.KeepAnnotations;
         BoardScreenBox.IsChecked = settings.BoardOnToolbarScreenOnly;
@@ -195,6 +196,7 @@ public partial class SettingsWindow : Window
             WheelChangesSize = WheelBox.IsChecked == true,
             PressureEnabled = PressureBox.IsChecked == true,
             HighlightSnapEnabled = HighlightSnapBox.IsChecked == true,
+            ShapeRecognitionEnabled = ShapeRecognitionBox.IsChecked == true,
             SizePerToolEnabled = SizePerToolBox.IsChecked == true,
             KeepAnnotations = KeepAnnotationsBox.IsChecked == true,
             BoardOnToolbarScreenOnly = BoardScreenBox.IsChecked == true,

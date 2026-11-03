@@ -229,10 +229,46 @@ internal sealed class AnnotationSurface : Grid
             Ink.Strokes.Add(clean);
             FinishStroke(clean);
         }
+        else if (!e.Stroke.DrawingAttributes.IsHighlighter && _options.ShapeRecognitionEnabled && CleanShape(e.Stroke) is { } shape)
+        {
+            if (_state.FadingEnabled)
+            {
+                // Évanescent : FinishStroke ne touche pas à l'historique, seule la forme nette s'efface.
+                Ink.Strokes.Remove(e.Stroke);
+                Ink.Strokes.Add(shape);
+                FinishStroke(shape);
+            }
+            else
+            {
+                FinishStroke(e.Stroke);
+                Ink.Strokes.Remove(e.Stroke);
+                Ink.Strokes.Add(shape);
+                _history.Record(new ReplaceStrokeAction(Ink, e.Stroke, shape));
+            }
+        }
         else
         {
             FinishStroke(e.Stroke);
         }
+    }
+
+    /// <summary>Remplace un tracé au stylo par la forme nette qu'il dessine, ou null si le doute subsiste.</summary>
+    private Stroke? CleanShape(Stroke raw)
+    {
+        var points = raw.StylusPoints.Select(point => new InkPoint(point.X, point.Y)).ToList();
+
+        if (ShapeRecognizer.Recognize(points) is not { } recognized)
+        {
+            return null;
+        }
+
+        var attributes = raw.DrawingAttributes.Clone();
+        attributes.FitToCurve = false;
+        attributes.IgnorePressure = true;
+
+        var outline = ShapeGeometry.Build(recognized.Tool, recognized.Start, recognized.End, false, raw.DrawingAttributes.Width);
+
+        return new Stroke(ToStylusPoints(outline), attributes);
     }
 
     /// <summary>Remplace un surlignage à main levée par un trait droit, calé sur le texte s'il y en a.</summary>

@@ -26,6 +26,8 @@ public sealed record AppSettings
 
     public bool HighlightSnapEnabled { get; init; } = true;
 
+    public bool ShapeRecognitionEnabled { get; init; }
+
     public bool BoardOnToolbarScreenOnly { get; init; }
 
     public CaptureDestination CaptureDestination { get; init; }

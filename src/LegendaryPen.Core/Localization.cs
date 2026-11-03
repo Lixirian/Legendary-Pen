@@ -117,6 +117,7 @@ public static class Translations
         ["La molette change la taille du trait en mode Dessin"] = "The mouse wheel changes the stroke size in Draw mode",
         ["Tenir compte de la pression du stylet"] = "Use stylus pressure",
         ["Redresser le surligneur et le caler sur le texte"] = "Straighten the highlighter and fit it to the text",
+        ["Reconnaître les formes dessinées au stylo"] = "Recognize shapes drawn with the pen",
         ["Mémoriser une taille par outil"] = "Remember a size for each tool",
         ["Annotations"] = "Annotations",
         ["Retrouver les annotations à la réouverture"] = "Restore annotations when reopening",

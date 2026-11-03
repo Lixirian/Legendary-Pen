@@ -64,6 +64,8 @@ public sealed class LiveOptions
 
     public bool HighlightSnapEnabled { get; private set; }
 
+    public bool ShapeRecognitionEnabled { get; private set; }
+
     public bool BoardOnToolbarScreenOnly { get; private set; }
 
     public bool KeepAnnotations { get; private set; }
@@ -76,6 +78,7 @@ public sealed class LiveOptions
         WheelChangesSize = settings.WheelChangesSize;
         PressureEnabled = settings.PressureEnabled;
         HighlightSnapEnabled = settings.HighlightSnapEnabled;
+        ShapeRecognitionEnabled = settings.ShapeRecognitionEnabled;
         BoardOnToolbarScreenOnly = settings.BoardOnToolbarScreenOnly;
         KeepAnnotations = settings.KeepAnnotations;
         Changed?.Invoke();
