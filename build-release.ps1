@@ -27,7 +27,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoName = 'Lixirian/Legendary-Pen'
 $root = $PSScriptRoot
-$dist = Join-Path $root 'dist'
+# Hors du dossier du projet : une synchronisation pendant la compilation peut corrompre l'installeur.
+$dist = Join-Path ([IO.Path]::GetTempPath()) 'LegendaryPen-build'
 $publishDir = Join-Path $dist 'publish'
 $project = Join-Path $root 'src\LegendaryPen.App\LegendaryPen.App.csproj'
 $configFile = Join-Path $root 'src\LegendaryPen.App\UpdateConfig.cs'
@@ -137,7 +138,7 @@ Invoke-Checked $dotnet @(
     '-p:DebugType=None', '-p:DebugSymbols=false', '-p:ContinuousIntegrationBuild=true', "-p:PathMap=$root=.",
     "-p:Version=$version", '-o', $publishDir, '-v', 'q', '--nologo')
 
-Invoke-Checked $iscc @('/Q', "/DAppVersion=$version", (Join-Path $root 'installer\LegendaryPen.iss'))
+Invoke-Checked $iscc @('/Q', "/DAppVersion=$version", "/DPublishDir=$publishDir", "/O$dist", (Join-Path $root 'installer\LegendaryPen.iss'))
 
 $installerName = "LegendaryPen-Setup-$version.exe"
 $installer = Join-Path $dist $installerName

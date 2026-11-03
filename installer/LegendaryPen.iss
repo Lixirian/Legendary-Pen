@@ -5,6 +5,10 @@
   #error Définir AppVersion : ISCC /DAppVersion=x.y.z LegendaryPen.iss
 #endif
 
+#ifndef PublishDir
+  #error Définir PublishDir, le dossier contenant LegendaryPen.exe
+#endif
+
 [Setup]
 AppId={{7C1E4D52-3B6A-4F0E-9A27-5D8C2E61B3F4}
 AppName=Legendary Pen
@@ -19,7 +23,6 @@ DefaultGroupName=Legendary Pen
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-OutputDir=..\dist
 OutputBaseFilename=LegendaryPen-Setup-{#AppVersion}
 Compression=lzma2/max
 SolidCompression=yes
@@ -36,7 +39,10 @@ Name: "french"; MessagesFile: "compiler:Languages\French.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "..\dist\publish\LegendaryPen.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#PublishDir}\LegendaryPen.exe"; DestDir: "{app}"; Flags: ignoreversion
+
+[UninstallDelete]
+Type: filesandordirs; Name: "{localappdata}\Legendary Pen"
 
 [Icons]
 Name: "{autoprograms}\Legendary Pen"; Filename: "{app}\LegendaryPen.exe"
