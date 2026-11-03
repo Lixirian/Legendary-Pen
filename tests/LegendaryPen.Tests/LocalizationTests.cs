@@ -23,6 +23,7 @@ public sealed partial class LocalizationTests : IDisposable
         "La loupe ne s'est pas arrêtée à temps.",
         "Loupe indisponible : la création de la fenêtre ou du contrôle a échoué.",
         "Loupe : la liste de filtrage a été refusée.",
+        "Loupe indisponible : {exception.Message}",
         "The click hook thread did not stop in time.",
         "Click effects unavailable: the mouse hook was refused.",
     ];
@@ -122,9 +123,12 @@ public sealed partial class LocalizationTests : IDisposable
     [Fact]
     public void The_word_pattern_detects_french_without_accents()
     {
-        // Un motif cassé ne doit plus jamais passer inaperçu :  borne les mots, et la majuscule initiale n'en fait pas un mot minuscule.
-        Assert.DoesNotMatch(Words(), "Tableau blanc");
+        // Un motif cassé ne doit plus jamais passer inaperçu : une majuscule initiale ou une lettre accentuée ne l'aveuglent pas.
+        Assert.Matches(Words(), "Tableau blanc");
         Assert.Matches(Words(), "sans accent ici");
+        Assert.Matches(Words(), "Loupe indisponible");
+        Assert.DoesNotMatch(Words(), "OK");
+        Assert.DoesNotMatch(Words(), "LegendaryPen.App");
     }
 
     [Fact]
@@ -232,6 +236,6 @@ public sealed partial class LocalizationTests : IDisposable
     [GeneratedRegex(@"[À-ÿ]")]
     private static partial Regex Accent();
 
-    [GeneratedRegex(@"\b[a-z]{2,} [a-z]{2,}\b")]
+    [GeneratedRegex(@"\b[A-Za-zÀ-ÿ]{2,} [a-zà-ÿ]{2,}\b")]
     private static partial Regex Words();
 }
