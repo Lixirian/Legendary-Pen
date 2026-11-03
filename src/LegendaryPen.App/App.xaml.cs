@@ -184,8 +184,12 @@ public partial class App : Application
 
             try
             {
+                // Les effets de présentation ne doivent pas figurer dans la capture (PR-8).
+                _presenter!.Suspend();
+
                 // La barre doit avoir réellement disparu de l'écran avant la copie.
                 WaitFor(TimeSpan.FromMilliseconds(150));
+                Win32.WaitForComposition();
                 image = new CaptureSession().Run(toolbar.Monitors);
             }
             catch (InvalidOperationException exception)
@@ -195,6 +199,7 @@ public partial class App : Application
             finally
             {
                 toolbar.Opacity = previousOpacity;
+                _presenter!.Resume();
             }
 
             if (image is not null)

@@ -10,6 +10,8 @@ internal sealed class PresentationManager : IDisposable
     private readonly Dictionary<string, PresentationWindow> _windows = [];
     private readonly HashSet<string> _connected = [];
 
+    private IReadOnlyList<MonitorArea> _monitors = [];
+    private MagnifierWindow? _magnifier;
     private IntPtr _toolbarHandle;
     private bool _suspended;
     private bool _subscribed;
@@ -44,6 +46,7 @@ internal sealed class PresentationManager : IDisposable
 
         _connected.Clear();
         _connected.UnionWith(connected.Keys);
+        _monitors = monitors;
         Apply();
     }
 
@@ -88,6 +91,7 @@ internal sealed class PresentationManager : IDisposable
         }
 
         _windows.Clear();
+        _magnifier?.Dispose();
     }
 
     private void Apply()
@@ -98,6 +102,13 @@ internal sealed class PresentationManager : IDisposable
         }
 
         var run = PresentationState.ShouldRun(_state.AnyActive, _suspended);
+
+        // Magnification.dll ne se charge qu'ici. Sans elle, la loupe s'éteint : ce basculement relance Apply.
+        if (run && _state.MagnifierOn && (_magnifier ??= MagnifierWindow.TryCreate()) is null)
+        {
+            _state.ToggleMagnifier();
+            return;
+        }
 
         foreach (var (name, window) in _windows)
         {
@@ -121,6 +132,16 @@ internal sealed class PresentationManager : IDisposable
         if (run)
         {
             RenderFrame();
+        }
+
+        // Après RenderFrame : la loupe apparaît déjà à sa place, au-dessus des fenêtres qui viennent de remonter.
+        if (run && _state.MagnifierOn)
+        {
+            _magnifier!.Show();
+        }
+        else
+        {
+            _magnifier?.Hide();
         }
     }
 
@@ -154,6 +175,23 @@ internal sealed class PresentationManager : IDisposable
             if (window.IsVisible)
             {
                 window.Render(pointer, _state.SpotlightOn);
+            }
+        }
+
+        if (_state.MagnifierOn && _magnifier is not null)
+        {
+            RenderMagnifier(_magnifier, pointer);
+        }
+    }
+
+    private void RenderMagnifier(MagnifierWindow magnifier, PixelPoint pointer)
+    {
+        foreach (var monitor in _monitors)
+        {
+            if (monitor.Bounds.Contains(pointer.X, pointer.Y))
+            {
+                magnifier.Update(pointer, monitor.Bounds, _toolbarHandle);
+                return;
             }
         }
     }

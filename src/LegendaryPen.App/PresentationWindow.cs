@@ -104,7 +104,7 @@ internal sealed class PresentationWindow : Window
     private sealed class EffectsLayer : FrameworkElement
     {
         private const double VeilOpacity = 0.6;
-        private const double SpotlightRadius = 90;
+        private const double SpotlightRadius = 180;
 
         // Le trou est franc jusqu'à cette fraction du rayon, puis le voile revient en dégradé.
         private const double SoftEdgeStart = 0.8;

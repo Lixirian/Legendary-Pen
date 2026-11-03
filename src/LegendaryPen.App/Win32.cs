@@ -32,9 +32,11 @@ internal static partial class Win32
     private const uint CaptureBlt = 0x40000000;
     private const int VkShift = 0x10;
     private const int GwlExStyle = -20;
+    private const long WsExTopmost = 0x00000008;
     private const long WsExTransparent = 0x00000020;
     private const long WsExToolWindow = 0x00000080;
     private const long WsExAppWindow = 0x00040000;
+    private const long WsExLayered = 0x00080000;
     private const long WsExNoActivate = 0x08000000;
 
     private const uint SwpNoSize = 0x0001;
@@ -43,7 +45,20 @@ internal static partial class Win32
     private const uint SwpNoActivate = 0x0010;
     private const uint MonitorInfoPrimary = 0x00000001;
 
+    private const uint WsPopup = 0x80000000;
+    private const uint WsChild = 0x40000000;
+    private const uint WsVisible = 0x10000000;
+    private const uint LwaAlpha = 0x00000002;
+    private const int SwHide = 0;
+    private const int SwShowNoActivate = 4;
+    private const uint MagnifierFilterExclude = 0;
+    private const string MagnifierClass = "Magnifier";
+    private const string MagnifierHostClass = "LegendaryPenMagnifierHost";
+
     private static readonly IntPtr HwndTopmost = new(-1);
+
+    // Conservé ici : Windows garde ce pointeur tant que la classe de fenêtre existe.
+    private static readonly WindowProcedure MagnifierHostProcedure = DefWindowProcW;
 
     public static void MakeFloatingToolWindow(IntPtr window)
     {
@@ -163,6 +178,109 @@ internal static partial class Win32
         return rect.ToPixelRect();
     }
 
+    public static bool InitializeMagnification() => MagInitialize();
+
+    public static void UninitializeMagnification() => MagUninitialize();
+
+    /// <summary>
+    /// Fenêtre ronde et cachée, qui ne prend ni les clics ni le focus, absente de la barre des tâches et d'Alt+Tab.
+    /// Renvoie zéro en cas d'échec. Une seule fois par processus : sa classe de fenêtre n'est enregistrée qu'ici.
+    /// </summary>
+    public static IntPtr CreateMagnifierHost(int diameter)
+    {
+        var instance = GetModuleHandleW(null);
+        var windowClass = new WindowClass
+        {
+            Procedure = Marshal.GetFunctionPointerForDelegate(MagnifierHostProcedure),
+            Instance = instance,
+            ClassName = MagnifierHostClass,
+        };
+
+        if (RegisterClassW(ref windowClass) == 0)
+        {
+            return IntPtr.Zero;
+        }
+
+        var host = CreateWindowExW(
+            (uint)(WsExTopmost | WsExLayered | WsExTransparent | WsExNoActivate | WsExToolWindow),
+            MagnifierHostClass,
+            "Legendary Pen - Loupe",
+            WsPopup,
+            0,
+            0,
+            diameter,
+            diameter,
+            IntPtr.Zero,
+            IntPtr.Zero,
+            instance,
+            IntPtr.Zero);
+
+        if (host == IntPtr.Zero)
+        {
+            return IntPtr.Zero;
+        }
+
+        // CreateEllipticRgn exclut ses bords droit et bas. Une fois acceptée, la région appartient à Windows.
+        var region = CreateEllipticRgn(0, 0, diameter + 1, diameter + 1);
+
+        if (!SetLayeredWindowAttributes(host, 0, 255, LwaAlpha) || SetWindowRgn(host, region, true) == 0)
+        {
+            DeleteObject(region);
+            DestroyWindow(host);
+            return IntPtr.Zero;
+        }
+
+        return host;
+    }
+
+    /// <summary>Contrôle de la loupe, qui remplit son hôte. Renvoie zéro en cas d'échec.</summary>
+    public static IntPtr CreateMagnifierControl(IntPtr host, int diameter)
+    {
+        return CreateWindowExW(
+            0,
+            MagnifierClass,
+            string.Empty,
+            WsChild | WsVisible,
+            0,
+            0,
+            diameter,
+            diameter,
+            host,
+            IntPtr.Zero,
+            GetModuleHandleW(null),
+            IntPtr.Zero);
+    }
+
+    public static bool SetMagnifierZoom(IntPtr control, float zoom)
+    {
+        return MagSetWindowTransform(control, [zoom, 0, 0, 0, zoom, 0, 0, 0, 1]);
+    }
+
+    /// <summary>Retire une fenêtre du contenu grossi.</summary>
+    public static bool ExcludeFromMagnifier(IntPtr control, IntPtr window)
+    {
+        return MagSetWindowFilterList(control, MagnifierFilterExclude, 1, [window]);
+    }
+
+    /// <summary>Change la zone grossie et demande de la redessiner, même si elle n'a pas bougé : l'écran change dessous.</summary>
+    public static void RefreshMagnifier(IntPtr control, PixelRect source)
+    {
+        MagSetWindowSource(control, new NativeRect { Left = source.Left, Top = source.Top, Right = source.Right, Bottom = source.Bottom });
+        InvalidateRect(control, IntPtr.Zero, false);
+    }
+
+    /// <summary>Place la fenêtre juste sous <paramref name="anchor"/>, ou au premier plan s'il n'y en a pas.</summary>
+    public static void PlaceBelow(IntPtr window, PixelPoint position, IntPtr anchor)
+    {
+        SetWindowPos(window, anchor != IntPtr.Zero ? anchor : HwndTopmost, position.X, position.Y, 0, 0, SwpNoSize | SwpNoActivate);
+    }
+
+    public static void ShowWithoutActivating(IntPtr window) => ShowWindow(window, SwShowNoActivate);
+
+    public static void HideWindow(IntPtr window) => ShowWindow(window, SwHide);
+
+    public static void Destroy(IntPtr window) => DestroyWindow(window);
+
     public static IReadOnlyList<MonitorArea> GetMonitors()
     {
         var monitors = new List<MonitorArea>();
@@ -267,6 +385,60 @@ internal static partial class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool UnregisterHotKey(IntPtr window, int id);
 
+    [LibraryImport("Magnification.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool MagInitialize();
+
+    [LibraryImport("Magnification.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool MagUninitialize();
+
+    [LibraryImport("Magnification.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool MagSetWindowSource(IntPtr control, NativeRect source);
+
+    [LibraryImport("Magnification.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool MagSetWindowTransform(IntPtr control, float[] matrix);
+
+    [LibraryImport("Magnification.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool MagSetWindowFilterList(IntPtr control, uint mode, int count, IntPtr[] windows);
+
+    [LibraryImport("kernel32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial IntPtr GetModuleHandleW(string? moduleName);
+
+    [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial IntPtr CreateWindowExW(uint exStyle, string className, string title, uint style, int x, int y, int width, int height, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr parameter);
+
+    [LibraryImport("user32.dll")]
+    private static partial IntPtr DefWindowProcW(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool DestroyWindow(IntPtr window);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool ShowWindow(IntPtr window, int command);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool InvalidateRect(IntPtr window, IntPtr rect, [MarshalAs(UnmanagedType.Bool)] bool erase);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool SetLayeredWindowAttributes(IntPtr window, uint colorKey, byte alpha, uint flags);
+
+    [LibraryImport("user32.dll")]
+    private static partial int SetWindowRgn(IntPtr window, IntPtr region, [MarshalAs(UnmanagedType.Bool)] bool redraw);
+
+    [LibraryImport("gdi32.dll")]
+    private static partial IntPtr CreateEllipticRgn(int left, int top, int right, int bottom);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern ushort RegisterClassW(ref WindowClass windowClass);
+
     [DllImport("user32.dll")]
     private static extern bool EnumDisplayMonitors(IntPtr deviceContext, IntPtr clip, MonitorEnumProc callback, IntPtr data);
 
@@ -274,6 +446,23 @@ internal static partial class Win32
     private static extern bool GetMonitorInfoW(IntPtr monitor, ref MonitorInfo info);
 
     private delegate bool MonitorEnumProc(IntPtr monitor, IntPtr deviceContext, IntPtr clip, IntPtr data);
+
+    private delegate IntPtr WindowProcedure(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct WindowClass
+    {
+        public uint Style;
+        public IntPtr Procedure;
+        public int ClassExtra;
+        public int WindowExtra;
+        public IntPtr Instance;
+        public IntPtr Icon;
+        public IntPtr Cursor;
+        public IntPtr Background;
+        public string? MenuName;
+        public string ClassName;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct NativePoint

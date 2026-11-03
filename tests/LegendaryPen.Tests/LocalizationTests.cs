@@ -19,6 +19,9 @@ public sealed partial class LocalizationTests : IDisposable
         "Cet outil n'est pas une forme.",
         "La taille de l'image ne correspond pas aux dimensions.",
         "La barre n'est attachée à aucun bord.",
+        "Loupe indisponible : MagInitialize a échoué.",
+        "Loupe indisponible : la création de la fenêtre ou du contrôle a échoué.",
+        "Loupe : la liste de filtrage a été refusée.",
     ];
 
     public void Dispose() => Loc.Use(AppLanguage.French, "fr");
