@@ -10,6 +10,9 @@
 #    -Bump minor|major|none   Niveau de version (patch par défaut).
 #    -NoPublish               Construit l'installeur sans rien envoyer ni modifier la version.
 #    -NewSigningKey           Crée la clé de signature (une seule fois).
+#    -ExportSigningKey        Crée une sauvegarde portable de la clé, protégée par un mot de passe.
+#    -ImportSigningKey        Restaure cette sauvegarde sur un nouveau Windows ou un autre PC.
+#    -KeyBackup <fichier>     Emplacement de la sauvegarde (par défaut, à côté de la clé).
 #
 #  Clé de signature : chemin indiqué dans signing-key.local.txt (hors dépôt), chiffrée pour l'utilisateur
 #  Windows courant. Elle ne doit pas aller sur GitHub. Sans elle, les
@@ -21,7 +24,10 @@ param(
     [string[]]$Notes = @(),
     [ValidateSet('patch', 'minor', 'major', 'none')][string]$Bump = 'patch',
     [switch]$NoPublish,
-    [switch]$NewSigningKey
+    [switch]$NewSigningKey,
+    [switch]$ExportSigningKey,
+    [switch]$ImportSigningKey,
+    [string]$KeyBackup = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -84,6 +90,27 @@ if ($NewSigningKey) {
     Write-TextFile $configFile $updated
 
     Write-Host "Clé créée : $keyFile" -ForegroundColor Green
+    return
+}
+
+if ($ExportSigningKey -or $ImportSigningKey) {
+    . (Join-Path $root 'signing-key-backup.ps1')
+
+    if (-not $keyFile) { throw "Indiquez le chemin de la clé dans $keyLocationFile" }
+    if (-not $KeyBackup) { $KeyBackup = Join-Path (Split-Path $keyFile) 'legendary-pen-signing-key.backup' }
+
+    $publicKey = [regex]::Match([IO.File]::ReadAllText($configFile), 'ReleasePublicKey = "([^"]*)"').Groups[1].Value
+
+    if ($ExportSigningKey) {
+        Export-SigningKey $keyFile $KeyBackup $publicKey (Read-BackupPassword -Confirm)
+        Write-Host "Sauvegarde créée et vérifiée : $KeyBackup" -ForegroundColor Green
+        Write-Host 'Notez le mot de passe en lieu sûr : sans lui, cette sauvegarde est inutilisable.' -ForegroundColor Yellow
+    }
+    else {
+        Import-SigningKey $KeyBackup $keyFile $publicKey (Read-BackupPassword)
+        Write-Host "Clé restaurée : $keyFile" -ForegroundColor Green
+    }
+
     return
 }
 

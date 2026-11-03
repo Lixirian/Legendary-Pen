@@ -17,8 +17,8 @@ public static class ToolbarPlacement
     private const int DefaultTopMargin = 16;
 
     /// <summary>
-    /// Conserve la position enregistrée si le centre de la barre reste sur un écran,
-    /// sinon la place en haut et au centre de l'écran principal.
+    /// Conserve la position enregistrée si la barre reste sur un écran, en la ramenant dans
+    /// ses limites si besoin, sinon la place en haut et au centre de l'écran principal.
     /// </summary>
     public static PixelPoint Resolve(
         PixelPoint? saved,
@@ -32,14 +32,26 @@ public static class ToolbarPlacement
             var centerX = position.X + (width / 2);
             var centerY = position.Y + (height / 2);
 
-            if (screens.Any(screen => screen.Contains(centerX, centerY)))
+            // Après une rotation, le centre peut sortir de l'écran alors que le coin de départ y reste.
+            var screen = screens.Cast<PixelRect?>().FirstOrDefault(candidate => candidate!.Value.Contains(centerX, centerY))
+                ?? screens.Cast<PixelRect?>().FirstOrDefault(candidate => candidate!.Value.Contains(position.X, position.Y));
+
+            if (screen is { } target)
             {
-                return position;
+                return new PixelPoint(
+                    ClampToRange(position.X, target.Left, target.Right - width),
+                    ClampToRange(position.Y, target.Top, target.Bottom - height));
             }
         }
 
         return new PixelPoint(
             primaryWorkArea.Left + ((primaryWorkArea.Width - width) / 2),
             primaryWorkArea.Top + DefaultTopMargin);
+    }
+
+    // Une barre plus grande que l'écran reste calée sur son bord de départ.
+    private static int ClampToRange(int value, int minimum, int maximum)
+    {
+        return Math.Max(minimum, Math.Min(value, maximum));
     }
 }

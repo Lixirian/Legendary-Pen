@@ -10,6 +10,8 @@ public sealed record AppSettings
 
     public int? ToolbarY { get; init; }
 
+    public bool ToolbarVertical { get; init; }
+
     public IReadOnlyList<string>? QuickColors { get; init; }
 
     public string? PenColor { get; init; }

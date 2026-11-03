@@ -191,6 +191,30 @@ public class ToolbarPlacementTests
     }
 
     [Fact]
+    public void A_toolbar_turned_vertical_near_the_bottom_stays_on_screen()
+    {
+        var result = ToolbarPlacement.Resolve(new PixelPoint(900, 700), 52, 800, [Primary], PrimaryWork);
+
+        Assert.Equal(new PixelPoint(900, 280), result);
+    }
+
+    [Fact]
+    public void A_toolbar_turned_horizontal_near_the_right_edge_stays_on_screen()
+    {
+        var result = ToolbarPlacement.Resolve(new PixelPoint(1500, 40), 800, 52, [Primary], PrimaryWork);
+
+        Assert.Equal(new PixelPoint(1120, 40), result);
+    }
+
+    [Fact]
+    public void A_toolbar_larger_than_the_screen_stays_aligned_on_its_start_edge()
+    {
+        var result = ToolbarPlacement.Resolve(new PixelPoint(900, 100), 52, 1200, [Primary], PrimaryWork);
+
+        Assert.Equal(new PixelPoint(900, 0), result);
+    }
+
+    [Fact]
     public void Uses_the_default_position_without_a_saved_one()
     {
         var result = ToolbarPlacement.Resolve(null, 300, 50, [Primary], PrimaryWork);
@@ -223,7 +247,7 @@ public sealed class SettingsStoreTests : IDisposable
     public void Saved_settings_are_read_back_without_leaving_temporary_files()
     {
         var store = new SettingsStore(SettingsPath);
-        var settings = new AppSettings { ToolbarX = -800, ToolbarY = 42 };
+        var settings = new AppSettings { ToolbarX = -800, ToolbarY = 42, ToolbarVertical = true };
 
         store.Save(settings);
 

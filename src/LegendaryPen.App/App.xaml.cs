@@ -48,8 +48,13 @@ public partial class App : Application
 
         PixelPoint? savedPosition = _settings is { ToolbarX: { } x, ToolbarY: { } y } ? new PixelPoint(x, y) : null;
         _updates = UpdateService.IsEnabled ? new UpdateService() : null;
-        _toolbar = new ToolbarWindow(state, _pen, history, _overlays, _updates, monitors, savedPosition);
+        _toolbar = new ToolbarWindow(state, _pen, history, _overlays, _updates, monitors, savedPosition, _settings.ToolbarVertical);
         _toolbar.PositionChanged += OnToolbarMoved;
+        _toolbar.OrientationChanged += () =>
+        {
+            _settings = _settings with { ToolbarVertical = _toolbar.IsVertical };
+            RestartSaveTimer();
+        };
         _toolbar.Show();
 
         _pen.Changed += RestartSaveTimer;

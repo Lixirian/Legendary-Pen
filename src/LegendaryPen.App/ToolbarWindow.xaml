@@ -87,13 +87,13 @@
     </Window.Resources>
 
     <Border Background="#F0202124" CornerRadius="12" Padding="4">
-        <StackPanel Orientation="Horizontal">
-            <Border Width="20"
+        <WrapPanel x:Name="ToolbarPanel">
+            <Border x:Name="Grip"
                     Background="Transparent"
                     Cursor="SizeAll"
                     ToolTip="Déplacer la barre"
                     MouseLeftButtonDown="OnGripPressed">
-                <TextBlock Text="&#xE784;"
+                <TextBlock x:Name="GripGlyph"
                            FontFamily="Segoe MDL2 Assets"
                            Foreground="#99FFFFFF"
                            HorizontalAlignment="Center"
@@ -113,15 +113,15 @@
                           Checked="OnPenToggled"
                           Unchecked="OnPenToggled" />
 
-            <Separator Width="1" Margin="4,8" Background="#44FFFFFF" />
+            <Border Tag="Separator" Background="#44FFFFFF" />
 
-            <StackPanel x:Name="SwatchPanel" Orientation="Horizontal" />
+            <StackPanel x:Name="SwatchPanel" />
             <Button Content="&#xE710;"
                     ToolTip="Autre couleur"
                     AutomationProperties.Name="Autre couleur"
                     Click="OnMoreColorsClicked" />
 
-            <Separator Width="1" Margin="4,8" Background="#44FFFFFF" />
+            <Border Tag="Separator" Background="#44FFFFFF" />
 
             <ToggleButton x:Name="SmallSizeButton"
                           Tag="0"
@@ -148,8 +148,7 @@
                 <Ellipse Width="14" Height="14" Fill="White" />
             </ToggleButton>
             <Slider x:Name="SizeSlider"
-                    Width="90"
-                    Margin="4,0"
+                    HorizontalAlignment="Center"
                     VerticalAlignment="Center"
                     Focusable="False"
                     Minimum="1"
@@ -161,7 +160,7 @@
                     AutomationProperties.Name="Taille du trait"
                     ValueChanged="OnSizeSliderChanged" />
 
-            <Separator Width="1" Margin="4,8" Background="#44FFFFFF" />
+            <Border Tag="Separator" Background="#44FFFFFF" />
 
             <Button x:Name="UndoButton"
                     Content="&#xE7A7;"
@@ -184,8 +183,12 @@
                           AutomationProperties.Name="Masquer les annotations"
                           Checked="OnHideToggled"
                           Unchecked="OnHideToggled" />
+            <Button x:Name="OrientationButton"
+                    Content="&#xE7AD;"
+                    AutomationProperties.Name="Changer l'orientation de la barre"
+                    Click="OnOrientationClicked" />
 
-            <Separator Width="1" Margin="4,8" Background="#44FFFFFF" />
+            <Border Tag="Separator" Background="#44FFFFFF" />
 
             <Button x:Name="UpdateButton"
                     Visibility="Collapsed"
@@ -206,6 +209,6 @@
                     ToolTip="Quitter"
                     AutomationProperties.Name="Quitter"
                     Click="OnQuitClicked" />
-        </StackPanel>
+        </WrapPanel>
     </Border>
 </Window>

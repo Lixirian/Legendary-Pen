@@ -1,9 +1,11 @@
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 using LegendaryPen.Core;
 
 namespace LegendaryPen.App;
@@ -14,6 +16,11 @@ public partial class ToolbarWindow : Window
     private const int ExitDrawHotKey = 2;
     private const int UndoHotKey = 3;
     private const int RedoHotKey = 4;
+
+    private const double ToolButtonSpan = 44;
+    private const double GripThickness = 20;
+    private const double SeparatorLength = 24;
+    private const double WindowChrome = 8;
 
     private readonly AppState _state;
     private readonly PenState _pen;
@@ -39,8 +46,10 @@ public partial class ToolbarWindow : Window
         OverlayManager overlays,
         UpdateService? updates,
         IReadOnlyList<MonitorArea> monitors,
-        PixelPoint? savedPosition)
+        PixelPoint? savedPosition,
+        bool vertical)
     {
+        IsVertical = vertical;
         _state = state;
         _pen = pen;
         _history = history;
@@ -53,6 +62,7 @@ public partial class ToolbarWindow : Window
 
         _sizeButtons = [SmallSizeButton, MediumSizeButton, LargeSizeButton];
         CreateSwatches();
+        ApplyOrientation();
 
         _state.Changed += Refresh;
         _pen.Changed += Refresh;
@@ -70,7 +80,11 @@ public partial class ToolbarWindow : Window
         }
     }
 
+    public bool IsVertical { get; private set; }
+
     public event Action? PositionChanged;
+
+    public event Action? OrientationChanged;
 
     /// <summary>Remet la barre au premier plan et sur un écran disponible.</summary>
     public void Reveal()
@@ -82,7 +96,8 @@ public partial class ToolbarWindow : Window
     public void UpdateMonitors(IReadOnlyList<MonitorArea> monitors)
     {
         _monitors = monitors;
-        Reveal();
+        UpdateSizeLimit();
+        PlaceAfterLayout();
     }
 
     /// <summary>Affiche la pastille, sans interrompre le travail en cours.</summary>
@@ -109,6 +124,7 @@ public partial class ToolbarWindow : Window
         HwndSource.FromHwnd(_handle)!.AddHook(OnWindowMessage);
 
         Register(ToggleModeHotKey, Win32.ModControl | Win32.ModShift, Win32.VkSpace, "Ctrl+Maj+Espace");
+        UpdateSizeLimit();
         Refresh();
     }
 
@@ -122,6 +138,11 @@ public partial class ToolbarWindow : Window
     // La taille finale n'est connue qu'après le premier rendu, car elle dépend du contenu.
     private void OnFirstRender(object? sender, EventArgs e)
     {
+        // La limite de taille n'existe qu'après la création de la fenêtre : la première mesure peut être périmée.
+        SizeToContent = SizeToContent.Manual;
+        SizeToContent = SizeToContent.WidthAndHeight;
+        UpdateLayout();
+
         PlaceOnScreen(_savedPosition);
         Opacity = 1;
     }
@@ -137,6 +158,67 @@ public partial class ToolbarWindow : Window
             size.Height,
             _monitors.Select(monitor => monitor.Bounds).ToList(),
             primary.WorkArea));
+    }
+
+    // La nouvelle taille n'est connue qu'une fois la mise en page terminée.
+    private void PlaceAfterLayout()
+    {
+        Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, Reveal);
+    }
+
+    private void ApplyOrientation()
+    {
+        var orientation = IsVertical ? Orientation.Vertical : Orientation.Horizontal;
+
+        ToolbarPanel.Orientation = orientation;
+        SwatchPanel.Orientation = orientation;
+        SizeSlider.Orientation = orientation;
+
+        SizeSlider.Width = IsVertical ? double.NaN : 90;
+        SizeSlider.Height = IsVertical ? 90 : double.NaN;
+        SizeSlider.Margin = IsVertical ? new Thickness(0, 4, 0, 4) : new Thickness(4, 0, 4, 0);
+
+        Grip.Width = IsVertical ? ToolButtonSpan : GripThickness;
+        Grip.Height = IsVertical ? GripThickness : ToolButtonSpan;
+        GripGlyph.Text = IsVertical ? "" : "";
+
+        foreach (var separator in ToolbarPanel.Children.OfType<Border>().Where(child => Equals(child.Tag, "Separator")))
+        {
+            separator.Width = IsVertical ? SeparatorLength : 1;
+            separator.Height = IsVertical ? 1 : SeparatorLength;
+            separator.Margin = IsVertical ? new Thickness(0, 4, 0, 4) : new Thickness(4, 0, 4, 0);
+            separator.HorizontalAlignment = HorizontalAlignment.Center;
+            separator.VerticalAlignment = VerticalAlignment.Center;
+        }
+
+        foreach (var swatch in _swatches)
+        {
+            swatch.Width = IsVertical ? ToolButtonSpan - 4 : 30;
+            swatch.Height = IsVertical ? 30 : ToolButtonSpan - 4;
+        }
+
+        OrientationButton.ToolTip = IsVertical ? "Mettre la barre à l'horizontale" : "Mettre la barre à la verticale";
+        UpdateSizeLimit();
+    }
+
+    // Une barre plus grande que son écran passe sur une colonne ou une ligne supplémentaire.
+    private void UpdateSizeLimit()
+    {
+        if (_handle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var bounds = Win32.GetBounds(_handle);
+        var centerX = bounds.Left + (bounds.Width / 2);
+        var centerY = bounds.Top + (bounds.Height / 2);
+        var monitor = _monitors.FirstOrDefault(candidate => candidate.Bounds.Contains(centerX, centerY))
+            ?? _monitors.FirstOrDefault(candidate => candidate.IsPrimary)
+            ?? _monitors[0];
+        var scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
+
+        ToolbarPanel.MaxWidth = IsVertical ? double.PositiveInfinity : (monitor.WorkArea.Width / scale) - WindowChrome;
+        ToolbarPanel.MaxHeight = IsVertical ? (monitor.WorkArea.Height / scale) - WindowChrome : double.PositiveInfinity;
     }
 
     private void CreateSwatches()
@@ -304,7 +386,17 @@ public partial class ToolbarWindow : Window
     private void OnGripPressed(object sender, MouseButtonEventArgs e)
     {
         DragMove();
+        UpdateSizeLimit();
+        PlaceAfterLayout();
         PositionChanged?.Invoke();
+    }
+
+    private void OnOrientationClicked(object sender, RoutedEventArgs e)
+    {
+        IsVertical = !IsVertical;
+        ApplyOrientation();
+        PlaceAfterLayout();
+        OrientationChanged?.Invoke();
     }
 
     // Checked et Unchecked couvrent la souris et l'accessibilité, contrairement à Click.

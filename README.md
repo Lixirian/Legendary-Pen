@@ -16,6 +16,7 @@ L'installeur n'étant pas signé par un certificat commercial, Windows SmartScre
 | Revenir au mode Souris | `Échap` |
 | Annuler / rétablir | `Ctrl+Z` / `Ctrl+Y` |
 | Modifier une couleur rapide | Clic droit sur la couleur |
+| Mettre la barre à la verticale ou à l'horizontale | Bouton de rotation de la barre |
 
 `Échap`, `Ctrl+Z` et `Ctrl+Y` ne sont réservés qu'en mode Dessin.
 
@@ -44,7 +45,7 @@ Cette commande augmente la version, lance les tests, construit et signe l'instal
 
 Options : `-Bump minor`, `-Bump major` et `-NoPublish` (installeur local uniquement).
 
-Le chemin de la clé de signature se trouve dans `signing-key.local.txt`, un fichier local exclu du dépôt. La clé doit être accessible pour publier et ne doit pas être partagée. Si elle est perdue, les applications installées refuseront les nouvelles versions et devront être réinstallées.
+Le chemin de la clé de signature se trouve dans `signing-key.local.txt`, un fichier local exclu du dépôt. La clé doit être accessible pour publier et ne doit pas être partagée. Elle ne fonctionne que dans la session Windows qui l'a créée : `-ExportSigningKey` en crée une sauvegarde protégée par un mot de passe, et `-ImportSigningKey` la restaure sur un nouveau Windows ou un autre PC. Si elle est perdue, les applications installées refuseront les nouvelles versions et devront être réinstallées.
 
 ## Licence
 
