@@ -52,6 +52,9 @@ internal sealed class OverlayWindow : Window
         Content = _root;
     }
 
+    /// <summary>La barre d'outils, que l'overlay ne doit jamais recouvrir.</summary>
+    public IntPtr ToolbarHandle { get; set; }
+
     public void UpdateMonitor(MonitorArea monitor)
     {
         _monitor = monitor;
@@ -132,6 +135,12 @@ internal sealed class OverlayWindow : Window
 
     private IntPtr OnWindowMessage(IntPtr window, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        // Un clic peut faire remonter l'overlay : transparent, il volerait les clics de la barre sans la cacher.
+        if (message == Win32.WmWindowPosChanging && ToolbarHandle != IntPtr.Zero)
+        {
+            Win32.KeepBelow(lParam, ToolbarHandle);
+        }
+
         if (message == Win32.WmDpiChanged)
         {
             // WPF applique d'abord sa propre taille : l'overlay doit ensuite recouvrir l'écran.

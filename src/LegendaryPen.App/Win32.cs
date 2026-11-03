@@ -9,6 +9,7 @@ public sealed record MonitorArea(string DeviceName, PixelRect Bounds, PixelRect 
 internal static partial class Win32
 {
     public const int WmActivate = 0x0006;
+    public const int WmWindowPosChanging = 0x0046;
     public const int WmHotKey = 0x0312;
     public const int WmDpiChanged = 0x02E0;
 
@@ -46,6 +47,22 @@ internal static partial class Win32
     public static void MakeNonActivatingAppWindow(IntPtr window)
     {
         SetExStyle(window, (GetExStyle(window) | WsExAppWindow | WsExNoActivate) & ~WsExToolWindow);
+    }
+
+    /// <summary>
+    /// À appeler sur WM_WINDOWPOSCHANGING : si Windows s'apprête à changer l'ordre d'empilement,
+    /// la fenêtre est placée juste sous <paramref name="anchor"/>.
+    /// </summary>
+    public static void KeepBelow(IntPtr windowPos, IntPtr anchor)
+    {
+        var insertAfterOffset = IntPtr.Size;
+        var flagsOffset = (IntPtr.Size * 2) + (sizeof(int) * 4);
+        var flags = (uint)Marshal.ReadInt32(windowPos, flagsOffset);
+
+        if ((flags & SwpNoZOrder) == 0)
+        {
+            Marshal.WriteIntPtr(windowPos, insertAfterOffset, anchor);
+        }
     }
 
     public static void SetNoActivate(IntPtr window, bool enabled)

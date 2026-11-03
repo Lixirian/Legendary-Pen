@@ -12,6 +12,7 @@ public sealed class OverlayManager
     private readonly FadeTiming _fadeTiming;
 
     private OverlayWindow? _keyboardOverlay;
+    private IntPtr _toolbarHandle;
 
     public OverlayManager(AppState state, PenState pen, SurfaceHistories histories, FadeTiming fadeTiming)
     {
@@ -54,6 +55,17 @@ public sealed class OverlayManager
         }
     }
 
+    /// <summary>Garantit que les overlays, présents et futurs, restent sous la barre d'outils.</summary>
+    public void KeepBelowToolbar(IntPtr toolbar)
+    {
+        _toolbarHandle = toolbar;
+
+        foreach (var overlay in _overlays.Values)
+        {
+            overlay.ToolbarHandle = toolbar;
+        }
+    }
+
     public void ClearAll()
     {
         var cleared = _overlays.Values
@@ -75,7 +87,10 @@ public sealed class OverlayManager
     {
         OverlayWindow? overlay = null;
 
-        overlay = new OverlayWindow(monitor, _state, _pen, _histories, _fadeTiming, editing => OnTextEditing(overlay!, editing));
+        overlay = new OverlayWindow(monitor, _state, _pen, _histories, _fadeTiming, editing => OnTextEditing(overlay!, editing))
+        {
+            ToolbarHandle = _toolbarHandle,
+        };
         overlay.Show();
         overlay.Apply();
 

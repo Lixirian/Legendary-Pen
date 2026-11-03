@@ -59,6 +59,7 @@ public partial class App : Application
             RestartSaveTimer();
         };
         _toolbar.Show();
+        _overlays.KeepBelowToolbar(new System.Windows.Interop.WindowInteropHelper(_toolbar).Handle);
 
         _pen.Changed += RestartSaveTimer;
         _state.Changed += () =>
