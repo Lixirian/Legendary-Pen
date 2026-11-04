@@ -40,7 +40,8 @@ internal sealed class ScreenRecorder : IAsyncDisposable
     private static readonly TimeSpan FrameWaitTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(15);
-    private static readonly TimeSpan CancelGrace = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan CancelGrace = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan CloseCaptureLimit = TimeSpan.FromSeconds(1);
 
     // Attributs Media Foundation, depuis mfapi.h.
     private static readonly Guid MtYuvMatrix = new("3e23d450-2c75-4d25-a00e-b91670d12327");
@@ -164,6 +165,12 @@ internal sealed class ScreenRecorder : IAsyncDisposable
         }
 
         var reason = RecordingEndReason.Failed;
+
+        // Une panne sans demande d'arrêt : la fermeture qui suit peut bloquer, et la limite de temps doit donc aussi la couvrir.
+        if (failure is not null)
+        {
+            RequestEnd(RecordingEndReason.Failed);
+        }
 
         try
         {
@@ -507,6 +514,7 @@ internal sealed class ScreenRecorder : IAsyncDisposable
 
             try
             {
+                Probes.InsideCopy?.Invoke();
                 _direct3D!.CopyTopLeft(destination, source, _width, _height);
                 return true;
             }
@@ -590,18 +598,17 @@ internal sealed class ScreenRecorder : IAsyncDisposable
     /// <summary>La fin tient en 15 s : au-delà, l'encodeur est annulé puis abandonné, et l'enregistrement a échoué.</summary>
     private async Task WatchEndAsync()
     {
-        if (await Task.WhenAny(_finished.Task, Task.Delay(StopTimeout - CancelGrace)).ConfigureAwait(false) == _finished.Task)
+        if (await Task.WhenAny(_finished.Task, Task.Delay(StopTimeout - CancelGrace - CloseCaptureLimit)).ConfigureAwait(false) == _finished.Task)
         {
             return;
         }
 
         Debug.WriteLine("The encoder did not stop in time.");
-        CancelTranscode();
+        _ = Task.Run(CancelTranscode);
 
         if (await Task.WhenAny(_finished.Task, Task.Delay(CancelGrace)).ConfigureAwait(false) != _finished.Task)
         {
-            CloseCapture();
-            End(RecordingEndReason.Failed);
+            await AbandonAsync().ConfigureAwait(false);
         }
     }
 
@@ -613,8 +620,17 @@ internal sealed class ScreenRecorder : IAsyncDisposable
         }
 
         Debug.WriteLine("The recording did not start in time.");
-        CancelTranscode();
-        CloseCapture();
+        _ = Task.Run(CancelTranscode);
+        await AbandonAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Annonce l'échec quoi qu'il arrive : un pilote bloqué peut retenir le verrou de la copie ou la fermeture de la capture.
+    /// Celle-ci continue alors en arrière-plan, et se termine quand le pilote rend la main.
+    /// </summary>
+    private async Task AbandonAsync()
+    {
+        await Task.WhenAny(Task.Run(CloseCapture), Task.Delay(CloseCaptureLimit)).ConfigureAwait(false);
         End(RecordingEndReason.Failed);
     }
 
@@ -1055,6 +1071,9 @@ internal sealed class RecorderProbes
 
     /// <summary>Donne le flux de sortie, pour simuler sa perte en cours d'enregistrement.</summary>
     public Action<IRandomAccessStream>? OutputOpened { get; set; }
+
+    /// <summary>Appelé pendant la copie, sous son verrou. Une attente simule un pilote bloqué.</summary>
+    public Action? InsideCopy { get; set; }
 
     /// <summary>Appelé quand l'encodeur a fini. Une attente simule une fin qui traîne au-delà de la limite.</summary>
     public Action? AfterEncoding { get; set; }
