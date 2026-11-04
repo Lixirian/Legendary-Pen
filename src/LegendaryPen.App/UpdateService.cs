@@ -36,18 +36,38 @@ public sealed class UpdateService
     {
         try
         {
-            var manifest = UpdateManifest.Parse(await Http.GetStringAsync(UpdateManifest.ManifestUrl));
+            var manifest = UpdateManifest.ParseVerified(await ReadManifestAsync(), UpdateConfig.ReleasePublicKey);
 
-            return manifest is not null &&
-                   manifest.IsNewerThan(CurrentVersion) &&
-                   manifest.HasValidSignature(UpdateConfig.ReleasePublicKey)
-                ? manifest
-                : null;
+            return manifest is not null && manifest.IsNewerThan(CurrentVersion) ? manifest : null;
         }
-        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException)
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or InvalidDataException or IOException)
         {
             return null;
         }
+    }
+
+    // Relu toutes les 10 minutes, avant toute vérification : sa taille doit rester bornée.
+    private static async Task<string> ReadManifestAsync()
+    {
+        using var response = await Http.GetAsync(UpdateManifest.ManifestUrl, HttpCompletionOption.ResponseHeadersRead);
+        response.EnsureSuccessStatusCode();
+
+        await using var source = await response.Content.ReadAsStreamAsync();
+        using var content = new MemoryStream();
+        var buffer = new byte[16 * 1024];
+        int read;
+
+        while ((read = await source.ReadAsync(buffer)) > 0)
+        {
+            content.Write(buffer, 0, read);
+
+            if (content.Length > UpdateManifest.MaxManifestBytes)
+            {
+                throw new InvalidDataException();
+            }
+        }
+
+        return System.Text.Encoding.UTF8.GetString(content.GetBuffer(), 0, (int)content.Length);
     }
 
     /// <summary>Télécharge l'installeur et ne renvoie son chemin que s'il correspond au manifeste signé.</summary>

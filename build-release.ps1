@@ -41,6 +41,8 @@ $configFile = Join-Path $root 'src\LegendaryPen.App\UpdateConfig.cs'
 $keyLocationFile = Join-Path $root 'signing-key.local.txt'
 $keyFile = if (Test-Path -LiteralPath $keyLocationFile) { [IO.File]::ReadAllText($keyLocationFile, [Text.Encoding]::UTF8).Trim() } else { $null }
 
+. (Join-Path $root 'release-manifest.ps1')
+
 Add-Type -AssemblyName System.Security
 
 function Invoke-Checked {
@@ -125,6 +127,19 @@ if (-not $NoPublish) {
     if (-not $keyFile) { throw "Indiquez le chemin de la clé dans $keyLocationFile" }
     if (-not (Test-Path -LiteralPath $keyFile)) { throw "Clé de signature introuvable : $keyFile. Son emplacement est-il accessible ?" }
     $gh = Find-Tool 'gh.exe' @((Join-Path $env:ProgramFiles 'GitHub CLI\gh.exe'))
+
+    # Une publication part d'un état connu : rien d'imprévu ne peut suivre sur le dépôt public.
+    Push-Location $root
+    try {
+        $branch = (& git rev-parse --abbrev-ref HEAD).Trim()
+        if ($branch -ne 'main') { throw "Publication possible depuis main uniquement (branche actuelle : $branch)." }
+
+        $pending = & git status --porcelain
+        if ($pending) { throw "Des fichiers ne sont pas validés :`n$($pending -join "`n")" }
+    }
+    finally {
+        Pop-Location
+    }
 }
 
 # --- Version -----------------------------------------------------------------
@@ -182,18 +197,10 @@ $rsa.FromXmlString([Text.Encoding]::UTF8.GetString(
 $publicKey = [regex]::Match([IO.File]::ReadAllText($configFile), 'ReleasePublicKey = "([^"]*)"').Groups[1].Value
 if ($publicKey -ne $rsa.ToXmlString($false)) { throw 'La clé de signature ne correspond pas à la clé publique de UpdateConfig.cs.' }
 
-$signed = [Text.Encoding]::UTF8.GetBytes("LegendaryPen|$version|$sha256")
-$signature = [Convert]::ToBase64String($rsa.SignData($signed, 'SHA256'))
-
 $manifest = Join-Path $dist 'latest.json'
-Write-TextFile $manifest (ConvertTo-Json -InputObject ([ordered]@{
-    version = $version
-    url     = "https://github.com/$repoName/releases/download/$tag/$installerName"
-    sha256  = $sha256
-    sig     = $signature
-    date    = (Get-Date).ToString('yyyy-MM-dd')
-    notes   = @($Notes)
-}) -Depth 3)
+Write-TextFile $manifest (New-ReleaseManifest -Rsa $rsa -Version $version `
+    -Url "https://github.com/$repoName/releases/download/$tag/$installerName" `
+    -Sha256 $sha256 -Date (Get-Date).ToString('yyyy-MM-dd') -Notes $Notes)
 
 # --- Publication ----------------------------------------------------------------
 if ($Bump -ne 'none') {
@@ -202,7 +209,8 @@ if ($Bump -ne 'none') {
 
 Push-Location $root
 try {
-    Invoke-Checked 'git' @('add', '-A')
+    # Seul le numéro de version peut avoir changé depuis le contrôle du début : aucun autre fichier ne part.
+    Invoke-Checked 'git' @('add', '--', $project)
     & git diff --cached --quiet
     if ($LASTEXITCODE -ne 0) { Invoke-Checked 'git' @('commit', '-m', "Version $version") }
     $global:LASTEXITCODE = 0
