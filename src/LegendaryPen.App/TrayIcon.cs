@@ -8,7 +8,6 @@ namespace LegendaryPen.App;
 internal sealed class TrayIcon : IDisposable
 {
     private readonly Forms.NotifyIcon _icon;
-    private readonly NotificationClicks _clicks = new();
 
     public TrayIcon(Action toggleToolbar, Action capture, Action record, Func<(string Text, bool Enabled)> recordState, Action signPdf, PresentationState presentation, Action settings, Action quit)
     {
@@ -80,13 +79,6 @@ internal sealed class TrayIcon : IDisposable
                 toggleToolbar();
             }
         };
-        _icon.BalloonTipClicked += (_, _) => _clicks.Action?.Invoke();
-    }
-
-    public void Notify(string message, Action? clicked = null)
-    {
-        _clicks.Shown(clicked, TimeSpan.FromMilliseconds(Environment.TickCount64));
-        _icon.ShowBalloonTip(3000, "Legendary Pen", message, Forms.ToolTipIcon.None);
     }
 
     public void Dispose()

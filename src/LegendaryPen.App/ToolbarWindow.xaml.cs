@@ -62,6 +62,7 @@ public partial class ToolbarWindow : Window
     private string _recordText = Loc.T("Enregistrer l'écran");
     private bool _recordEnabled = true;
     private bool _recordingActive;
+    private bool _secondRowVisible;
 
     public ToolbarWindow(
         AppState state,
@@ -77,7 +78,8 @@ public partial class ToolbarWindow : Window
         string? dockMonitor,
         TimeSpan collapseDelay,
         HotkeyMap hotkeys,
-        PresentationState presentation)
+        PresentationState presentation,
+        bool secondRowVisible)
     {
         _hotkeys = hotkeys;
         IsVertical = vertical;
@@ -93,6 +95,7 @@ public partial class ToolbarWindow : Window
         _updates = updates;
         _monitors = monitors;
         _savedPosition = savedPosition;
+        _secondRowVisible = secondRowVisible;
 
         InitializeComponent();
 
@@ -140,6 +143,12 @@ public partial class ToolbarWindow : Window
     public event Action? PositionChanged;
 
     public event Action? OrientationChanged;
+
+    /// <summary>La deuxième ligne vient d'être affichée ou masquée.</summary>
+    public event Action? SecondRowChanged;
+
+    /// <summary>La deuxième ligne de la barre est affichée.</summary>
+    public bool SecondRowVisible => _secondRowVisible;
 
     public event Action? CaptureRequested;
 
@@ -462,6 +471,7 @@ public partial class ToolbarWindow : Window
         var orientation = EffectiveVertical ? Orientation.Vertical : Orientation.Horizontal;
 
         ToolbarPanel.Orientation = orientation;
+        SecondRow.Orientation = orientation;
         SwatchPanel.Orientation = orientation;
         SizeSlider.Orientation = orientation;
 
@@ -473,7 +483,7 @@ public partial class ToolbarWindow : Window
         Grip.Height = EffectiveVertical ? GripThickness : ToolButtonSpan;
         GripGlyph.Text = EffectiveVertical ? "" : "";
 
-        foreach (var separator in ToolbarPanel.Children.OfType<Border>().Where(child => Equals(child.Tag, "Separator")))
+        foreach (var separator in ToolbarPanel.Children.OfType<Border>().Concat(SecondRow.Children.OfType<Border>()).Where(child => Equals(child.Tag, "Separator")))
         {
             separator.Width = EffectiveVertical ? SeparatorLength : 1;
             separator.Height = EffectiveVertical ? 1 : SeparatorLength;
@@ -489,8 +499,44 @@ public partial class ToolbarWindow : Window
         }
 
         ApplyDockAppearance();
+        ApplySecondRow();
         OrientationButton.ToolTip = EffectiveVertical ? Loc.T("Mettre la barre à l'horizontale") : Loc.T("Mettre la barre à la verticale");
         UpdateSizeLimit();
+    }
+
+    // La deuxième ligne s'ouvre à l'opposé du bord attaché ; la flèche montre où elle va, ou d'où elle se referme.
+    private void ApplySecondRow()
+    {
+        var vertical = EffectiveVertical;
+        var leads = ToolbarDocking.SecondRowLeads(Dock);
+
+        Grid.SetRow(ToolbarPanel, !vertical && leads ? 1 : 0);
+        Grid.SetColumn(ToolbarPanel, vertical && leads ? 1 : 0);
+        Grid.SetRow(SecondRow, !vertical && !leads ? 1 : 0);
+        Grid.SetColumn(SecondRow, vertical && !leads ? 1 : 0);
+        SecondRow.Visibility = _secondRowVisible ? Visibility.Visible : Visibility.Collapsed;
+
+        var towardStart = leads != _secondRowVisible;
+        SecondRowGlyph.Text = (vertical, towardStart) switch
+        {
+            (false, true) => "\uE70E",
+            (false, false) => "\uE70D",
+            (true, true) => "\uE76B",
+            (true, false) => "\uE76C",
+        };
+
+        var label = _secondRowVisible ? Loc.T("Masquer la deuxième ligne") : Loc.T("Afficher la deuxième ligne");
+        SecondRowButton.ToolTip = label;
+        AutomationProperties.SetName(SecondRowButton, label);
+    }
+
+    private void OnSecondRowClicked(object sender, RoutedEventArgs e)
+    {
+        _secondRowVisible = !_secondRowVisible;
+        ApplySecondRow();
+        Refresh();
+        PlaceAfterLayout();
+        SecondRowChanged?.Invoke();
     }
 
     // Le côté attaché reste droit, et la vague garde sa base contre le bord.
@@ -534,6 +580,8 @@ public partial class ToolbarWindow : Window
 
         ToolbarPanel.MaxWidth = EffectiveVertical ? double.PositiveInfinity : (DockArea(monitor).Width / scale) - WindowChrome;
         ToolbarPanel.MaxHeight = EffectiveVertical ? (DockArea(monitor).Height / scale) - WindowChrome : double.PositiveInfinity;
+        SecondRow.MaxWidth = ToolbarPanel.MaxWidth;
+        SecondRow.MaxHeight = ToolbarPanel.MaxHeight;
     }
 
     private void CreateSwatches()
@@ -599,6 +647,11 @@ public partial class ToolbarWindow : Window
         PreviousColorDot.Opacity = _pen.PreviousColor is null ? 0.3 : 1;
         PresentationButton.Background = _presentation.AnyActive ? (Brush)FindResource("SelectedBrush") : Brushes.Transparent;
         LayersButton.Background = _layersWindow is not null ? (Brush)FindResource("SelectedBrush") : Brushes.Transparent;
+
+        // Un état actif ne doit pas se perdre avec la ligne qui le montre.
+        SecondRowBadge.Visibility = !_secondRowVisible && (_state.FadingEnabled || _state.Background != BoardBackground.Transparent || !_state.AnnotationsVisible || _presentation.AnyActive)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
 
         _refreshing = false;
 

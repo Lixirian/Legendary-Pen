@@ -80,18 +80,93 @@ public sealed class AnnotationStoreLayersTests : IDisposable
     }
 
     [Fact]
-    public void A_file_whose_layers_share_a_number_keeps_the_stack_and_loses_nothing()
+    public void A_file_whose_layers_share_a_number_keeps_both_layers_with_their_visibility()
     {
         var stack = new LayerStack();
-        var first = stack.Active.Id;
         var a = new SavedLayer(Guid.NewGuid(), 2, true, [], []);
-        var b = new SavedLayer(Guid.NewGuid(), 2, true, [], []);
+        var hidden = new SavedLayer(Guid.NewGuid(), 2, false, [], []);
 
-        var targets = LayerRestoration.RestoreInto(stack, new SavedSurface([], [], [a, b], a.Id, 3), stackAlreadyRestored: false);
+        var targets = LayerRestoration.RestoreInto(stack, new SavedSurface([], [], [a, hidden], a.Id, 3), stackAlreadyRestored: false);
 
-        Assert.Single(stack.Layers);
-        Assert.Equal(first, targets[a.Id]);
-        Assert.Equal(first, targets[b.Id]);
+        Assert.Equal(new[] { a.Id, hidden.Id }, stack.Layers.Select(layer => layer.Id));
+        Assert.False(stack.Layers[1].IsVisible);
+        Assert.NotEqual(stack.Layers[0].Number, stack.Layers[1].Number);
+        Assert.Equal(hidden.Id, targets[hidden.Id]);
+    }
+
+    [Fact]
+    public void A_repeated_layer_id_joins_its_first_layer()
+    {
+        var stack = new LayerStack();
+        var id = Guid.NewGuid();
+        var saved = new SavedSurface([], [], [new SavedLayer(id, 1, true, [1], []), new SavedLayer(id, 2, false, [2], [])], id, 3);
+
+        var targets = LayerRestoration.RestoreInto(stack, saved, stackAlreadyRestored: false);
+
+        Assert.Equal(id, Assert.Single(stack.Layers).Id);
+        Assert.True(stack.Layers[0].IsVisible);
+        Assert.Equal(id, targets[id]);
+    }
+
+    [Fact]
+    public void Layers_past_the_limit_join_a_kept_layer_of_the_same_visibility()
+    {
+        var stack = new LayerStack();
+        var layers = Enumerable.Range(1, LayerStack.MaxLayers)
+            .Select(number => new SavedLayer(Guid.NewGuid(), number, number != 3, [], []))
+            .ToList();
+        var extraHidden = new SavedLayer(Guid.NewGuid(), 20, false, [], []);
+        var extraVisible = new SavedLayer(Guid.NewGuid(), 21, true, [], []);
+        layers.AddRange([extraHidden, extraVisible]);
+
+        var targets = LayerRestoration.RestoreInto(stack, new SavedSurface([], [], layers, layers[0].Id, 22), stackAlreadyRestored: false);
+
+        Assert.Equal(LayerStack.MaxLayers, stack.Layers.Count);
+        Assert.Equal(layers[2].Id, targets[extraHidden.Id]);
+        Assert.Equal(layers[LayerStack.MaxLayers - 1].Id, targets[extraVisible.Id]);
+    }
+
+    [Fact]
+    public void A_file_with_every_layer_hidden_shows_only_its_active_layer()
+    {
+        var stack = new LayerStack();
+        var a = new SavedLayer(Guid.NewGuid(), 1, false, [], []);
+        var b = new SavedLayer(Guid.NewGuid(), 2, false, [], []);
+
+        LayerRestoration.RestoreInto(stack, new SavedSurface([], [], [a, b], a.Id, 3), stackAlreadyRestored: false);
+
+        Assert.Equal(a.Id, stack.Active.Id);
+        Assert.True(stack.Layers[0].IsVisible);
+        Assert.False(stack.Layers[1].IsVisible);
+    }
+
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(-4, null)]
+    [InlineData(int.MaxValue, int.MinValue)]
+    public void Unusable_numbers_are_replaced_and_never_reused(int number, int? next)
+    {
+        var stack = new LayerStack();
+        var a = new SavedLayer(Guid.NewGuid(), number, true, [], []);
+        var b = new SavedLayer(Guid.NewGuid(), 5, true, [], []);
+
+        LayerRestoration.RestoreInto(stack, new SavedSurface([], [], [a, b], a.Id, next), stackAlreadyRestored: false);
+
+        var state = stack.Capture();
+        Assert.All(state.Layers, layer => Assert.InRange(layer.Number, 1, state.NextNumber - 1));
+        Assert.Equal(2, state.Layers.Select(layer => layer.Number).Distinct().Count());
+    }
+
+    [Fact]
+    public void A_file_without_any_layer_leaves_the_stack_alone()
+    {
+        var stack = new LayerStack();
+        var before = stack.Capture();
+
+        var targets = LayerRestoration.RestoreInto(stack, new SavedSurface([], [], [], null, null), stackAlreadyRestored: false);
+
+        AssertSameState(before, stack.Capture());
+        Assert.Empty(targets);
     }
 
     [Fact]
@@ -111,21 +186,81 @@ public sealed class AnnotationStoreLayersTests : IDisposable
     }
 
     [Fact]
-    public void The_panel_is_capped_to_the_room_on_the_largest_side()
+    public void The_panel_goes_beside_a_horizontal_bar_rather_than_being_cut_short()
     {
         var place = LayersPanelPlacement.Beside(new PixelRect(100, 300, 500, 350), false, new PixelRect(0, 0, 1920, 600), 300, 400);
 
-        Assert.Equal(new LayersPanelPlace(100, 0, 300), place);
+        Assert.Equal(new LayersPanelPlace(500, 200, null), place);
     }
 
     [Fact]
-    public void The_panel_stays_in_the_area_when_a_horizontal_bar_leaves_no_room()
+    public void The_panel_is_capped_when_the_bar_fills_the_width()
+    {
+        var place = LayersPanelPlacement.Beside(new PixelRect(0, 300, 1920, 350), false, new PixelRect(0, 0, 1920, 600), 300, 400);
+
+        Assert.Equal(new LayersPanelPlace(0, 0, 300), place);
+    }
+
+    [Fact]
+    public void The_panel_does_not_cover_a_bar_that_leaves_room_on_a_side()
     {
         var area = new PixelRect(0, 0, 1920, 300);
 
         var place = LayersPanelPlacement.Beside(new PixelRect(100, 0, 500, 300), false, area, 300, 400);
 
-        Assert.Equal(new LayersPanelPlace(100, 0, 300), place);
+        Assert.Equal(new LayersPanelPlace(500, 0, 300), place);
+    }
+
+    [Fact]
+    public void The_panel_goes_on_the_left_when_only_the_left_has_room()
+    {
+        var place = LayersPanelPlacement.Beside(new PixelRect(1500, 0, 1920, 300), false, new PixelRect(0, 0, 1920, 300), 300, 400);
+
+        Assert.Equal(new LayersPanelPlace(1200, 0, 300), place);
+    }
+
+    [Fact]
+    public void A_vertical_bar_too_wide_for_a_side_sends_the_panel_above_or_below()
+    {
+        var place = LayersPanelPlacement.Beside(new PixelRect(0, 100, 1000, 500), true, new PixelRect(0, 0, 1000, 1000), 300, 400);
+
+        Assert.Equal(new LayersPanelPlace(0, 500, null), place);
+    }
+
+    [Fact]
+    public void The_panel_stays_in_the_area_when_the_bar_fills_it_entirely()
+    {
+        var area = new PixelRect(0, 0, 1000, 300);
+
+        var place = LayersPanelPlacement.Beside(area, false, area, 300, 400);
+
+        Assert.Equal(new LayersPanelPlace(0, 0, 300), place);
+    }
+
+    [Fact]
+    public void Notifications_stack_up_from_the_corner_with_the_newest_at_the_bottom()
+    {
+        var places = NotificationPlacement.Stack(new PixelRect(0, 0, 1920, 1040), [(300, 60), (340, 80)], 10);
+
+        Assert.Equal(new[] { new PixelPoint(1610, 880), new PixelPoint(1570, 950) }, places);
+    }
+
+    [Fact]
+    public void The_second_row_stays_away_from_the_edge_a_bar_is_attached_to()
+    {
+        Assert.True(ToolbarDocking.SecondRowLeads(ToolbarDock.Bottom));
+        Assert.True(ToolbarDocking.SecondRowLeads(ToolbarDock.Right));
+        Assert.False(ToolbarDocking.SecondRowLeads(ToolbarDock.Top));
+        Assert.False(ToolbarDocking.SecondRowLeads(ToolbarDock.Left));
+        Assert.False(ToolbarDocking.SecondRowLeads(ToolbarDock.None));
+    }
+
+    [Fact]
+    public void The_second_row_is_shown_unless_the_settings_say_otherwise()
+    {
+        Assert.True(new AppSettings().ToolbarSecondRowVisible);
+        Assert.True(System.Text.Json.JsonSerializer.Deserialize<AppSettings>("{}")!.ToolbarSecondRowVisible);
+        Assert.False(System.Text.Json.JsonSerializer.Deserialize<AppSettings>("{\"ToolbarSecondRowVisible\":false}")!.ToolbarSecondRowVisible);
     }
 
     [Fact]
@@ -283,19 +418,20 @@ public sealed class AnnotationStoreLayersTests : IDisposable
     }
 
     [Fact]
-    public void An_invalid_state_falls_back_to_one_layer_without_losing_content()
+    public void An_unknown_active_layer_keeps_every_layer_and_picks_the_top_visible_one()
     {
         var stack = new LayerStack();
-        var before = stack.Capture();
         var layerA = new SavedLayer(Guid.NewGuid(), 1, true, [1], []);
         var layerB = new SavedLayer(Guid.NewGuid(), 2, true, [2], []);
+        var hidden = new SavedLayer(Guid.NewGuid(), 3, false, [3], []);
 
         // Le calque actif annoncé n'existe pas.
-        var targets = LayerRestoration.RestoreInto(stack, new SavedSurface([], [], [layerA, layerB], Guid.NewGuid(), 3), stackAlreadyRestored: false);
+        var targets = LayerRestoration.RestoreInto(stack, new SavedSurface([], [], [layerA, layerB, hidden], Guid.NewGuid(), 4), stackAlreadyRestored: false);
 
-        AssertSameState(before, stack.Capture());
-        Assert.Equal(before.ActiveId, targets[layerA.Id]);
-        Assert.Equal(before.ActiveId, targets[layerB.Id]);
+        Assert.Equal(3, stack.Layers.Count);
+        Assert.Equal(layerB.Id, stack.Active.Id);
+        Assert.False(stack.Layers[2].IsVisible);
+        Assert.Equal(hidden.Id, targets[hidden.Id]);
     }
 
     [Fact]

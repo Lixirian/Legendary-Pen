@@ -1,6 +1,6 @@
 namespace LegendaryPen.Core;
 
-/// <summary>Résultat d'une fusion : la pile à adopter, et le calque de la pile qui reçoit chaque calque enregistré.</summary>
+/// <summary>Résultat d'une relecture : la pile à adopter, et le calque de la pile qui reçoit chaque calque enregistré.</summary>
 public sealed record LayerMerge(LayerStackState State, IReadOnlyDictionary<Guid, Guid> Targets);
 
 /// <summary>
@@ -9,6 +9,9 @@ public sealed record LayerMerge(LayerStackState State, IReadOnlyDictionary<Guid,
 /// </summary>
 public static class LayerRestoration
 {
+    // Au-delà, un fichier retouché ferait déborder la numérotation des calques suivants.
+    private const int MaxNumber = 1_000_000;
+
     /// <summary>
     /// Vrai si la pile est exactement celle d'origine : un seul calque, le premier, sans autre numéro déjà pris. Ses
     /// annotations s'écrivent alors à l'ancien format, le seul qu'une version antérieure à 0.9 sache relire : elle ne verrait
@@ -17,14 +20,68 @@ public static class LayerRestoration
     public static bool UsesLegacyFormat(LayerStackState state) =>
         state.NextNumber == 2 && state.Layers is [{ Number: 1, IsVisible: true }];
 
-    /// <summary>L'état de pile décrit par un fichier. Peut être refusé par <see cref="LayerStack.Restore"/> s'il est incohérent.</summary>
-    public static LayerStackState StateOf(IReadOnlyList<SavedLayer> layers, Guid? activeLayerId, int? nextNumber)
+    /// <summary>
+    /// La pile décrite par un fichier, toujours acceptée par <see cref="LayerStack.Restore"/>, et le calque qui reçoit chaque
+    /// calque enregistré. Un fichier retouché à la main est réparé au plus près : les calques gardent leur place et leur
+    /// visibilité. Un identifiant répété rejoint son premier calque ; au-delà de <see cref="LayerStack.MaxLayers"/>, un calque
+    /// rejoint le dernier gardé de même visibilité, pour qu'un contenu masqué le reste. Un numéro inutilisable en reçoit un
+    /// nouveau. Si aucun calque n'est visible, seul le calque actif se montre. Nul si le fichier ne décrit aucun calque.
+    /// </summary>
+    public static LayerMerge? StateOf(IReadOnlyList<SavedLayer> layers, Guid? activeLayerId, int? nextNumber)
     {
-        var infos = layers.Select(layer => new LayerInfo(layer.Id, layer.Number, layer.IsVisible)).ToList();
-        var active = activeLayerId ?? infos.FirstOrDefault(info => info.IsVisible)?.Id ?? Guid.Empty;
-        var next = nextNumber ?? (infos.Count == 0 ? 1 : infos.Max(info => info.Number) + 1);
+        var kept = new List<LayerInfo>();
+        var targets = new Dictionary<Guid, Guid>();
 
-        return new LayerStackState(infos, active, next);
+        foreach (var layer in layers)
+        {
+            if (targets.ContainsKey(layer.Id))
+            {
+                continue;
+            }
+
+            if (kept.Count < LayerStack.MaxLayers)
+            {
+                kept.Add(new LayerInfo(layer.Id, layer.Number, layer.IsVisible));
+                targets[layer.Id] = layer.Id;
+            }
+            else
+            {
+                targets[layer.Id] = (kept.LastOrDefault(info => info.IsVisible == layer.IsVisible) ?? kept[^1]).Id;
+            }
+        }
+
+        if (kept.Count == 0)
+        {
+            return null;
+        }
+
+        // Le plus grand numéro peut valoir int.MaxValue dans un fichier retouché : il est alors remplacé, sans déborder.
+        var usable = kept.Where(info => info.Number is >= 1 and < MaxNumber).Select(info => info.Number).DefaultIfEmpty(0).Max();
+        var next = Math.Max(nextNumber is >= 1 and <= MaxNumber ? nextNumber.Value : 1, usable + 1);
+        var numbers = new HashSet<int>();
+
+        for (var index = 0; index < kept.Count; index++)
+        {
+            if (kept[index].Number is < 1 or >= MaxNumber || !numbers.Add(kept[index].Number))
+            {
+                kept[index] = kept[index] with { Number = next };
+                numbers.Add(next++);
+            }
+        }
+
+        // Le calque annoncé s'il est utilisable, sinon le calque visible le plus haut.
+        var active = kept.FirstOrDefault(info => info.Id == activeLayerId && info.IsVisible)
+            ?? kept.LastOrDefault(info => info.IsVisible);
+
+        if (active is null)
+        {
+            var chosen = kept.FindIndex(info => info.Id == activeLayerId);
+            chosen = chosen >= 0 ? chosen : kept.Count - 1;
+            kept[chosen] = kept[chosen] with { IsVisible = true };
+            active = kept[chosen];
+        }
+
+        return new LayerMerge(new LayerStackState(kept, active.Id, next), targets);
     }
 
     /// <summary>
@@ -65,8 +122,8 @@ public static class LayerRestoration
 
     /// <summary>
     /// Applique les calques d'un fichier à la pile et renvoie, pour chaque calque enregistré, le calque qui reçoit son
-    /// contenu. Seule une pile encore d'origine peut être remplacée ; sinon le fichier fusionne. Si l'état enregistré est
-    /// incohérent, la pile reste telle quelle et tout va dans son calque actif. Un fichier ancien ne touche pas à la pile.
+    /// contenu. Seule une pile encore d'origine peut être remplacée ; sinon le fichier fusionne. Un état abîmé est d'abord
+    /// réparé par <see cref="StateOf"/>. Un fichier ancien ne touche pas à la pile.
     /// </summary>
     public static IReadOnlyDictionary<Guid, Guid> RestoreInto(LayerStack stack, SavedSurface saved, bool stackAlreadyRestored)
     {
@@ -78,31 +135,26 @@ public static class LayerRestoration
         // Un calque nul ne vient que d'un fichier retouché à la main : le reste se relit.
         var layers = allLayers.Where(layer => layer is not null).ToList();
 
-        try
+        if (!stackAlreadyRestored && UsesLegacyFormat(stack.Capture()))
         {
-            if (!stackAlreadyRestored && UsesLegacyFormat(stack.Capture()))
+            if (StateOf(layers, saved.ActiveLayerId, saved.NextNumber) is not { } described)
             {
-                stack.Restore(StateOf(layers, saved.ActiveLayerId, saved.NextNumber));
-
-                return layers.ToDictionary(layer => layer.Id, layer => layer.Id);
+                return new Dictionary<Guid, Guid>();
             }
 
-            var merge = MergeLayers(stack.Capture(), layers);
+            stack.Restore(described.State);
 
-            if (merge.State.Layers.Count != stack.Layers.Count)
-            {
-                stack.Restore(merge.State);
-            }
-
-            return merge.Targets;
+            return described.Targets;
         }
-        catch (ArgumentException exception)
+
+        var merge = MergeLayers(stack.Capture(), layers);
+
+        if (merge.State.Layers.Count != stack.Layers.Count)
         {
-            System.Diagnostics.Debug.WriteLine($"Saved layers are inconsistent, keeping the current stack: {exception.Message}");
-            var active = stack.Active.Id;
-
-            return layers.GroupBy(layer => layer.Id).ToDictionary(group => group.Key, _ => active);
+            stack.Restore(merge.State);
         }
+
+        return merge.Targets;
     }
 }
 

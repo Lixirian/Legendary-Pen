@@ -26,7 +26,6 @@ public sealed partial class LocalizationTests : IDisposable
         "La loupe n'a pas confirmé son retrait des captures.",
         "Loupe : le changement d'exclusion des captures a été refusé.",
         "Loupe indisponible : {exception.Message}",
-        "Saved layers are inconsistent, keeping the current stack: {exception.Message}",
         "The click hook thread did not stop in time.",
         "Unknown sound source.",
         "The sound buffer stays in error.",

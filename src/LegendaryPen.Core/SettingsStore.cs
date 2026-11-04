@@ -20,6 +20,8 @@ public sealed record AppSettings
 
     public double? ToolbarCollapseSeconds { get; init; }
 
+    public bool ToolbarSecondRowVisible { get; init; } = true;
+
     public bool WheelChangesSize { get; init; } = true;
 
     public bool PressureEnabled { get; init; } = true;

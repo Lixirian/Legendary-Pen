@@ -138,32 +138,6 @@ public sealed class AudioBufferErrorWatch
     public void Clear() => _since = null;
 }
 
-/// <summary>
-/// Ce que fait un clic sur une notification. Windows ne dit pas laquelle a été cliquée, et en montre parfois plusieurs à la
-/// fois : un message sans action ne prend donc pas la place de l'action du précédent tant que celui-ci peut encore être à l'écran.
-/// </summary>
-public sealed class NotificationClicks
-{
-    /// <summary>Durée où une notification peut rester à l'écran : au-delà, son action ne répond plus à rien.</summary>
-    public static readonly TimeSpan Lifetime = TimeSpan.FromSeconds(10);
-
-    private TimeSpan _shownAt;
-
-    public Action? Action { get; private set; }
-
-    /// <summary>Un message vient de s'afficher à cet instant, avec son action s'il en a une.</summary>
-    public void Shown(Action? clicked, TimeSpan now)
-    {
-        if (clicked is null && Action is not null && now - _shownAt < Lifetime)
-        {
-            return;
-        }
-
-        Action = clicked;
-        _shownAt = now;
-    }
-}
-
 public static class RecordingRules
 {
     /// <summary>Espace libre minimal pour continuer à enregistrer : 500 Mo.</summary>

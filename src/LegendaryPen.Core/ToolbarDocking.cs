@@ -52,6 +52,9 @@ public static class ToolbarDocking
     }
 
     /// <summary>Sur les côtés, la barre est verticale ; en haut et en bas, horizontale ; sinon, au choix.</summary>
+    /// <summary>Vrai si la deuxième ligne passe avant la première : contre le bas ou la droite, la première ne bouge pas quand elle s'ouvre.</summary>
+    public static bool SecondRowLeads(ToolbarDock dock) => dock is ToolbarDock.Bottom or ToolbarDock.Right;
+
     public static bool IsVertical(ToolbarDock dock, bool floatingVertical)
     {
         return dock switch

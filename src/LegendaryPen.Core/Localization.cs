@@ -151,6 +151,8 @@ public static class Translations
         ["Fermer"] = "Close",
         ["Déplier la barre"] = "Expand the toolbar",
         ["Déplacer la barre"] = "Move the toolbar",
+        ["Afficher la deuxième ligne"] = "Show the second row",
+        ["Masquer la deuxième ligne"] = "Hide the second row",
         ["Mode Souris (Échap)"] = "Mouse mode (Esc)",
         ["Mode Souris"] = "Mouse mode",
         ["Stylo (P)"] = "Pen (P)",

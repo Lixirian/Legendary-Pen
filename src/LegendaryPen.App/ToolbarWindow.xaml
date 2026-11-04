@@ -185,6 +185,15 @@
         </Grid>
     </Button>
     <Border x:Name="BarSurface" Background="#F0202124" Padding="4">
+        <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
         <WrapPanel x:Name="ToolbarPanel">
             <Border x:Name="Grip"
                     Background="Transparent"
@@ -267,31 +276,6 @@
 
             <Border Tag="Separator" Background="#44FFFFFF" />
 
-            <ToggleButton x:Name="FadeButton"
-                          Content="&#xE823;"
-                          ToolTip="Encre évanescente (F)"
-                          AutomationProperties.Name="Encre évanescente"
-                          Checked="OnFadeToggled"
-                          Unchecked="OnFadeToggled" />
-            <ToggleButton x:Name="WhiteboardButton"
-                          Tag="Whiteboard"
-                          ToolTip="Tableau blanc (W)"
-                          AutomationProperties.Name="Tableau blanc"
-                          Checked="OnBoardToggled"
-                          Unchecked="OnBoardToggled">
-                <Rectangle Width="18" Height="13" Fill="White" />
-            </ToggleButton>
-            <ToggleButton x:Name="BlackboardButton"
-                          Tag="Blackboard"
-                          ToolTip="Tableau noir (B)"
-                          AutomationProperties.Name="Tableau noir"
-                          Checked="OnBoardToggled"
-                          Unchecked="OnBoardToggled">
-                <Rectangle Width="18" Height="13" Fill="#FF1C1C1E" Stroke="White" StrokeThickness="1" />
-            </ToggleButton>
-
-            <Border Tag="Separator" Background="#44FFFFFF" />
-
             <StackPanel x:Name="SwatchPanel" />
             <Button Content="&#xE710;"
                     ToolTip="Autre couleur"
@@ -330,18 +314,6 @@
                           Unchecked="OnSizePresetToggled">
                 <Ellipse Width="14" Height="14" Fill="White" />
             </ToggleButton>
-            <Slider x:Name="SizeSlider"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    Focusable="False"
-                    Minimum="1"
-                    Maximum="40"
-                    TickFrequency="1"
-                    IsSnapToTickEnabled="True"
-                    IsMoveToPointEnabled="True"
-                    ToolTip="Taille du trait"
-                    AutomationProperties.Name="Taille du trait"
-                    ValueChanged="OnSizeSliderChanged" />
 
             <Border Tag="Separator" Background="#44FFFFFF" />
 
@@ -360,6 +332,96 @@
                     ToolTip="Tout effacer (Suppr)"
                     AutomationProperties.Name="Tout effacer"
                     Click="OnClearClicked" />
+            <Button x:Name="RecordButton"
+                    ToolTipService.ShowOnDisabled="True"
+                    AutomationProperties.Name="Enregistrer l'écran"
+                    Click="OnRecordClicked">
+                <Grid>
+                    <TextBlock x:Name="RecordGlyph" Text="&#xE7C8;" Foreground="#FFFF5252" />
+                    <Viewbox x:Name="RecordTime" StretchDirection="DownOnly" Margin="2,0" Visibility="Collapsed">
+                        <TextBlock x:Name="RecordTimeText" FontFamily="Segoe UI" FontSize="12" FontWeight="SemiBold" />
+                    </Viewbox>
+                </Grid>
+            </Button>
+
+            <Border Tag="Separator" Background="#44FFFFFF" />
+
+            <Button x:Name="UpdateButton"
+                    Visibility="Collapsed"
+                    ToolTip="Mise à jour disponible"
+                    AutomationProperties.Name="Mise à jour disponible"
+                    Click="OnUpdateClicked">
+                <Grid>
+                    <TextBlock Text="&#xE896;" />
+                    <Ellipse Width="9"
+                             Height="9"
+                             Margin="0,-4,-6,0"
+                             HorizontalAlignment="Right"
+                             VerticalAlignment="Top"
+                             Fill="#FFFF5252" />
+                </Grid>
+            </Button>
+            <Button x:Name="SecondRowButton"
+                    AutomationProperties.Name="Masquer la deuxième ligne"
+                    Click="OnSecondRowClicked">
+                <Grid>
+                    <TextBlock x:Name="SecondRowGlyph" />
+                    <Ellipse x:Name="SecondRowBadge"
+                             Width="9"
+                             Height="9"
+                             Margin="0,-4,-6,0"
+                             HorizontalAlignment="Right"
+                             VerticalAlignment="Top"
+                             Fill="#FFFF5252"
+                             Visibility="Collapsed" />
+                </Grid>
+            </Button>
+            <Button Content="&#xE8BB;"
+                    ToolTip="Quitter"
+                    AutomationProperties.Name="Quitter"
+                    Click="OnQuitClicked" />
+        </WrapPanel>
+        <WrapPanel x:Name="SecondRow">
+            <ToggleButton x:Name="FadeButton"
+                          Content="&#xE823;"
+                          ToolTip="Encre évanescente (F)"
+                          AutomationProperties.Name="Encre évanescente"
+                          Checked="OnFadeToggled"
+                          Unchecked="OnFadeToggled" />
+            <ToggleButton x:Name="WhiteboardButton"
+                          Tag="Whiteboard"
+                          ToolTip="Tableau blanc (W)"
+                          AutomationProperties.Name="Tableau blanc"
+                          Checked="OnBoardToggled"
+                          Unchecked="OnBoardToggled">
+                <Rectangle Width="18" Height="13" Fill="White" />
+            </ToggleButton>
+            <ToggleButton x:Name="BlackboardButton"
+                          Tag="Blackboard"
+                          ToolTip="Tableau noir (B)"
+                          AutomationProperties.Name="Tableau noir"
+                          Checked="OnBoardToggled"
+                          Unchecked="OnBoardToggled">
+                <Rectangle Width="18" Height="13" Fill="#FF1C1C1E" Stroke="White" StrokeThickness="1" />
+            </ToggleButton>
+
+            <Border Tag="Separator" Background="#44FFFFFF" />
+
+            <Slider x:Name="SizeSlider"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Focusable="False"
+                    Minimum="1"
+                    Maximum="40"
+                    TickFrequency="1"
+                    IsSnapToTickEnabled="True"
+                    IsMoveToPointEnabled="True"
+                    ToolTip="Taille du trait"
+                    AutomationProperties.Name="Taille du trait"
+                    ValueChanged="OnSizeSliderChanged" />
+
+            <Border Tag="Separator" Background="#44FFFFFF" />
+
             <ToggleButton x:Name="HideButton"
                           Content="&#xED1A;"
                           ToolTip="Masquer les annotations (V)"
@@ -375,17 +437,6 @@
                     Content="&#xE722;"
                     AutomationProperties.Name="Capture d'écran"
                     Click="OnCaptureClicked" />
-            <Button x:Name="RecordButton"
-                    ToolTipService.ShowOnDisabled="True"
-                    AutomationProperties.Name="Enregistrer l'écran"
-                    Click="OnRecordClicked">
-                <Grid>
-                    <TextBlock x:Name="RecordGlyph" Text="&#xE7C8;" Foreground="#FFFF5252" />
-                    <Viewbox x:Name="RecordTime" StretchDirection="DownOnly" Margin="2,0" Visibility="Collapsed">
-                        <TextBlock x:Name="RecordTimeText" FontFamily="Segoe UI" FontSize="12" FontWeight="SemiBold" />
-                    </Viewbox>
-                </Grid>
-            </Button>
             <Button x:Name="SignPdfButton"
                     Content="&#xEE56;"
                     ToolTip="Signer un PDF"
@@ -407,26 +458,8 @@
                     ToolTip="Réglages"
                     AutomationProperties.Name="Réglages"
                     Click="OnSettingsClicked" />
-            <Button x:Name="UpdateButton"
-                    Visibility="Collapsed"
-                    ToolTip="Mise à jour disponible"
-                    AutomationProperties.Name="Mise à jour disponible"
-                    Click="OnUpdateClicked">
-                <Grid>
-                    <TextBlock Text="&#xE896;" />
-                    <Ellipse Width="9"
-                             Height="9"
-                             Margin="0,-4,-6,0"
-                             HorizontalAlignment="Right"
-                             VerticalAlignment="Top"
-                             Fill="#FFFF5252" />
-                </Grid>
-            </Button>
-            <Button Content="&#xE8BB;"
-                    ToolTip="Quitter"
-                    AutomationProperties.Name="Quitter"
-                    Click="OnQuitClicked" />
         </WrapPanel>
+        </Grid>
     </Border>
     </Grid>
 </Window>

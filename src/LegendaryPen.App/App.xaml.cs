@@ -33,6 +33,7 @@ public partial class App : Application
     private UpdateService? _updates;
     private LiveOptions? _options;
     private TrayIcon? _tray;
+    private NotificationCenter? _notifications;
     private HotkeyMap? _pendingHotkeys;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -113,7 +114,9 @@ public partial class App : Application
             _settings.ToolbarDockMonitor,
             ToolbarDocking.CollapseDelay(_settings.ToolbarCollapseSeconds),
             new HotkeyMap(_settings.Hotkeys),
-            _presentation);
+            _presentation,
+            _settings.ToolbarSecondRowVisible);
+        _notifications = new NotificationCenter(() => (_toolbar.Monitors.FirstOrDefault(monitor => monitor.IsPrimary) ?? _toolbar.Monitors[0]).WorkArea);
         _overlays.BoardMonitor = () => _toolbar.CurrentMonitorName;
         _toolbar.CaptureRequested += RequestCapture;
         _toolbar.OverlayAnchorChanged += anchor =>
@@ -134,6 +137,11 @@ public partial class App : Application
             };
             RestartSaveTimer();
         };
+        _toolbar.SecondRowChanged += () =>
+        {
+            _settings = _settings with { ToolbarSecondRowVisible = _toolbar.SecondRowVisible };
+            RestartSaveTimer();
+        };
         _toolbar.Show();
         var toolbarHandle = new System.Windows.Interop.WindowInteropHelper(_toolbar).Handle;
         _overlays.KeepBelowToolbar(toolbarHandle);
@@ -146,7 +154,7 @@ public partial class App : Application
             () => _settings,
             _toolbar.AddCaptureExclusion,
             _toolbar.ReleaseCaptureExclusion,
-            (message, clicked) => _tray?.Notify(message, clicked));
+            _notifications.Show);
         _recording.DisplayChanged += ShowRecording;
         _toolbar.RecordRequested += RequestRecord;
         _toolbar.BeforeUpdateInstall = () => _recording.StopAndWaitAsync();
@@ -190,6 +198,7 @@ public partial class App : Application
         SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
         _displayChangeTimer.Stop();
         _updateTimer.Stop();
+        _notifications?.CloseAll();
         _tray?.Dispose();
 
         SaveOnClose();
@@ -416,7 +425,7 @@ public partial class App : Application
             {
                 case CaptureDestination.Clipboard:
                     CaptureDelivery.CopyToClipboard(image);
-                    _tray!.Notify(Loc.T("Capture copiée dans le presse-papiers."));
+                    _notifications!.Show(Loc.T("Capture copiée dans le presse-papiers."));
                     break;
 
                 case CaptureDestination.Ask:
@@ -438,7 +447,7 @@ public partial class App : Application
     {
         if (path is not null)
         {
-            _tray!.Notify(Loc.T("Capture enregistrée : {0}", Path.GetFileName(path)), () => CaptureDelivery.ShowInExplorer(path));
+            _notifications!.Show(Loc.T("Capture enregistrée : {0}", Path.GetFileName(path)), () => CaptureDelivery.ShowInExplorer(path));
         }
     }
 
@@ -565,7 +574,7 @@ public partial class App : Application
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            _tray?.Notify(Loc.T("Impossible d'enregistrer les annotations."));
+            _notifications?.Show(Loc.T("Impossible d'enregistrer les annotations."));
         }
     }
 
