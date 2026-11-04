@@ -110,12 +110,20 @@ public sealed class AudioTimeline
         }
     }
 
-    /// <summary>Place un paquet à la suite, quand son heure n'est pas fiable : il n'y a rien à corriger.</summary>
-    public void PlaceNext(ReadOnlySpan<byte> pcm)
+    /// <summary>
+    /// Place un paquet dont l'heure n'est pas fiable : à la suite, tant que le son n'est pas en avance sur l'horloge.
+    /// Un paquet arrive toujours après sa capture : <paramref name="clockFrame"/>, son heure estimée à la lecture, n'est jamais
+    /// trop tôt, et le son qui la dépasse est donc vraiment en avance. Le retard, lui, reste au silence du côté de l'encodeur.
+    /// </summary>
+    public void PlaceNext(ReadOnlySpan<byte> pcm, long clockFrame)
     {
         lock (_gate)
         {
-            if (!_finished)
+            if (_written - clockFrame > DriftToleranceFrames)
+            {
+                Place(pcm, clockFrame);
+            }
+            else if (!_finished)
             {
                 Append(pcm);
             }

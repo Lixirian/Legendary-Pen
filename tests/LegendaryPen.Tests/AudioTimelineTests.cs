@@ -225,6 +225,56 @@ public class AudioTimelineTests
         Assert.Equal(frames - AudioTimeline.CapacityFrames, start);
     }
 
+    [Fact]
+    public void A_packet_without_a_reliable_time_follows_the_previous_one_while_the_clock_agrees()
+    {
+        var timeline = new AudioTimeline();
+        timeline.PlaceNext(Numbered(1, Chunk), 0);
+        timeline.PlaceNext(Numbered(1 + Chunk, Chunk), Chunk + AudioTimeline.DriftToleranceFrames);
+
+        var chunks = ReadAll(timeline);
+
+        Assert.Equal(2, chunks.Count);
+        Assert.Equal(1 + Chunk, Number(chunks[1].Pcm, 0));
+        Assert.Equal(0, timeline.Corrections);
+    }
+
+    [Fact]
+    public void A_packet_without_a_reliable_time_loses_one_frame_when_the_sound_runs_slightly_ahead_of_the_clock()
+    {
+        var timeline = new AudioTimeline();
+        timeline.PlaceNext(Numbered(1, Chunk), 0);
+
+        // Le son est en avance de plus de 5 ms sur l'horloge, mais de moins de 40 ms : une seule image saute.
+        timeline.PlaceNext(Numbered(1 + Chunk, Chunk), Chunk - AudioTimeline.DriftToleranceFrames - 1);
+
+        Assert.Equal(1, timeline.Corrections);
+        Assert.Equal((2 * Chunk) - 1, timeline.Written);
+    }
+
+    [Fact]
+    public void A_packet_without_a_reliable_time_is_cut_when_the_sound_runs_far_ahead_of_the_clock()
+    {
+        var timeline = new AudioTimeline();
+        timeline.PlaceNext(Numbered(1, 3 * Chunk), 0);
+
+        // L'horloge n'en est qu'au premier morceau : ce qui recouvre le déjà écrit disparaît, et le son n'avance plus.
+        timeline.PlaceNext(Numbered(1000, Chunk), Chunk);
+
+        Assert.Equal(3 * Chunk, timeline.Written);
+    }
+
+    [Fact]
+    public void A_packet_without_a_reliable_time_adds_no_silence_when_the_sound_is_behind_the_clock()
+    {
+        var timeline = new AudioTimeline();
+        timeline.PlaceNext(Numbered(1, Chunk), 0);
+        timeline.PlaceNext(Numbered(1 + Chunk, Chunk), 10 * Chunk);
+
+        Assert.Equal(2 * Chunk, timeline.Written);
+        Assert.Equal(0, timeline.Corrections);
+    }
+
     [Theory]
     [InlineData(0, 0)]
     [InlineData(10_000_000, 48000)]

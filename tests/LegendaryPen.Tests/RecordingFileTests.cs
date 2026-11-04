@@ -52,6 +52,17 @@ public sealed class RecordingFileTests : IDisposable
     }
 
     [Fact]
+    public void An_empty_file_is_not_a_lost_video_nothing_was_written()
+    {
+        File.WriteAllBytes(Temporary, []);
+
+        var outcome = RecordingFile.Settle(Temporary, Final, diskFull: false);
+
+        Assert.Null(outcome.SavedPath);
+        Assert.False(outcome.IsLost);
+    }
+
+    [Fact]
     public void A_complete_video_is_kept_even_after_a_disk_full_failure()
     {
         WriteComplete();
@@ -167,7 +178,7 @@ public sealed class RecordingFileTests : IDisposable
     {
         var outcome = RecordingFile.Settle(Temporary, Final, diskFull: false);
 
-        Assert.Equal(new RecordingFileOutcome(null, IsInPlace: false, MayBeIncomplete: false), outcome);
+        Assert.Equal(new RecordingFileOutcome(null, IsInPlace: false, MayBeIncomplete: false, IsLost: true), outcome);
     }
 
     [Fact]

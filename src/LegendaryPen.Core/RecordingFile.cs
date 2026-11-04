@@ -6,7 +6,8 @@ namespace LegendaryPen.Core;
 /// <param name="SavedPath">Où elle se trouve ; null s'il n'y a pas de vidéo.</param>
 /// <param name="IsInPlace">Vrai si elle porte son nom final.</param>
 /// <param name="MayBeIncomplete">Vrai si le fichier gardé n'a pas pu être confirmé comme une vidéo finie.</param>
-public readonly record struct RecordingFileOutcome(string? SavedPath, bool IsInPlace, bool MayBeIncomplete);
+/// <param name="IsLost">Vrai si le fichier a disparu du disque sans qu'on le supprime : la vidéo est perdue.</param>
+public readonly record struct RecordingFileOutcome(string? SavedPath, bool IsInPlace, bool MayBeIncomplete, bool IsLost = false);
 
 /// <summary>
 /// Décide du sort du fichier temporaire. Une vidéo finie n'est jamais supprimée ni cachée : ni la vérification, ni une erreur de
@@ -37,7 +38,7 @@ public static class RecordingFile
             Check.Complete => Move(temporaryPath, finalPath, moveLimit ?? MoveRetryLimit),
             Check.Refused when diskFull => Delete(temporaryPath) ? default : new RecordingFileOutcome(temporaryPath, false, true),
             Check.Empty => DiscardEmpty(temporaryPath),
-            Check.Missing => default,
+            Check.Missing => new RecordingFileOutcome(null, false, false, IsLost: true),
             _ => new RecordingFileOutcome(temporaryPath, false, true),
         };
     }

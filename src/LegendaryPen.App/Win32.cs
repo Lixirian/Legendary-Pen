@@ -183,9 +183,6 @@ internal static partial class Win32
         return SetWindowDisplayAffinity(window, excluded ? WdaExcludeFromCapture : WdaNone);
     }
 
-    /// <summary>
-    /// Espace libre pour cet utilisateur sur le disque du dossier, réseau compris ; null si Windows ne répond pas.
-    /// </summary>
     /// <summary>Empêche la veille et l'extinction de l'écran, ou lève cette demande. Vaut pour le fil appelant : à lever sur le même fil.</summary>
     public static void KeepAwake(bool awake)
     {
@@ -194,6 +191,9 @@ internal static partial class Win32
         SetThreadExecutionState(awake ? Continuous | SystemRequired | DisplayRequired : Continuous);
     }
 
+    /// <summary>
+    /// Espace libre pour cet utilisateur sur le disque du dossier, réseau compris ; null si Windows ne répond pas.
+    /// </summary>
     public static long? FreeBytes(string folder)
     {
         // Windows exige la barre finale pour un dossier réseau.

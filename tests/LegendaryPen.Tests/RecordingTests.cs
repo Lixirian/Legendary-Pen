@@ -24,6 +24,77 @@ public class RecordingTests
     }
 
     [Fact]
+    public void A_buffer_error_is_only_stuck_after_five_consecutive_seconds()
+    {
+        var watch = new AudioBufferErrorWatch();
+
+        Assert.False(watch.IsStuck(TimeSpan.FromSeconds(100)));
+        Assert.False(watch.IsStuck(TimeSpan.FromSeconds(104.9)));
+        Assert.True(watch.IsStuck(TimeSpan.FromSeconds(105)));
+    }
+
+    [Fact]
+    public void A_good_read_restarts_the_count_of_buffer_errors()
+    {
+        var watch = new AudioBufferErrorWatch();
+        watch.IsStuck(TimeSpan.FromSeconds(100));
+
+        watch.Clear();
+
+        Assert.False(watch.IsStuck(TimeSpan.FromSeconds(106)));
+        Assert.False(watch.IsStuck(TimeSpan.FromSeconds(110.9)));
+        Assert.True(watch.IsStuck(TimeSpan.FromSeconds(111)));
+    }
+
+    [Fact]
+    public void A_second_message_without_an_action_keeps_the_action_of_the_first()
+    {
+        var clicks = new NotificationClicks();
+        Action saved = () => { };
+
+        clicks.Shown(saved, TimeSpan.FromSeconds(100));
+        clicks.Shown(null, TimeSpan.FromSeconds(102));
+
+        Assert.Same(saved, clicks.Action);
+    }
+
+    [Fact]
+    public void A_second_message_with_an_action_takes_over()
+    {
+        var clicks = new NotificationClicks();
+        Action first = () => { };
+        Action second = () => { };
+
+        clicks.Shown(first, TimeSpan.FromSeconds(100));
+        clicks.Shown(second, TimeSpan.FromSeconds(102));
+
+        Assert.Same(second, clicks.Action);
+    }
+
+    [Fact]
+    public void An_old_action_does_not_answer_a_click_on_a_later_message()
+    {
+        var clicks = new NotificationClicks();
+
+        clicks.Shown(() => { }, TimeSpan.FromSeconds(100));
+        clicks.Shown(null, TimeSpan.FromSeconds(100) + NotificationClicks.Lifetime);
+
+        Assert.Null(clicks.Action);
+    }
+
+    [Fact]
+    public void A_kept_action_still_ends_with_its_own_message_not_the_later_one()
+    {
+        var clicks = new NotificationClicks();
+
+        clicks.Shown(() => { }, TimeSpan.FromSeconds(100));
+        clicks.Shown(null, TimeSpan.FromSeconds(105));
+        clicks.Shown(null, TimeSpan.FromSeconds(100) + NotificationClicks.Lifetime);
+
+        Assert.Null(clicks.Action);
+    }
+
+    [Fact]
     public void A_second_start_is_refused_while_recording()
     {
         var state = new RecordingState();

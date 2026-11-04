@@ -33,6 +33,7 @@ internal sealed class AudioSource : IDisposable
     private const long CaptureBufferTicks = TimeSpan.TicksPerSecond;
 
     private readonly AudioTimeline _timeline = new();
+    private readonly AudioBufferErrorWatch _bufferErrors = new();
     private readonly RecordingAudio _kind;
     private readonly RecorderProbes _probes;
     private readonly ManualResetEventSlim _opened = new(false);
@@ -259,6 +260,7 @@ internal sealed class AudioSource : IDisposable
 
             if (size == 0)
             {
+                _bufferErrors.Clear();
                 return;
             }
 
@@ -269,9 +271,14 @@ internal sealed class AudioSource : IDisposable
             var forced = _probes.AudioBufferResult?.Invoke() ?? 0;
             var result = forced != 0 ? forced : capture.GetBuffer(out data, out frames, out flags, out _, out time);
 
-            // Tampon momentanément occupé : aucun tampon n'a été remis, la prochaine lecture le reprendra.
+            // Tampon momentanément occupé : aucun tampon n'a été remis, la prochaine lecture le reprendra. Si cela dure, le son est perdu.
             if (RecordingRules.IsTemporaryAudioBufferError(result))
             {
+                if (_bufferErrors.IsStuck(TimeSpan.FromTicks(ToTicks(Stopwatch.GetTimestamp()))))
+                {
+                    throw new InvalidOperationException("The sound buffer stays in error.");
+                }
+
                 return;
             }
 
@@ -279,8 +286,11 @@ internal sealed class AudioSource : IDisposable
 
             if (result == BufferEmpty)
             {
+                _bufferErrors.Clear();
                 return;
             }
+
+            _bufferErrors.Clear();
 
             try
             {
@@ -311,6 +321,8 @@ internal sealed class AudioSource : IDisposable
             return;
         }
 
+        flags = _probes.AudioPacketFlags?.Invoke(flags) ?? flags;
+
         var bytes = frames * AudioTimeline.BytesPerFrame;
 
         if (_packet.Length < bytes)
@@ -331,7 +343,8 @@ internal sealed class AudioSource : IDisposable
 
         if ((flags & BufferFlagTimestampError) != 0)
         {
-            _timeline.PlaceNext(pcm);
+            // Le paquet vient de finir au plus tard maintenant : son début n'est pas plus tard que cette heure estimée.
+            _timeline.PlaceNext(pcm, FrameOf(ToTicks(Stopwatch.GetTimestamp())) - frames);
         }
         else
         {

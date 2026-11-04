@@ -371,6 +371,7 @@ internal sealed class RecordingController
             run.Recorder = recorder;
             RecorderCreated?.Invoke(recorder);
             recorder.Ended += reason => _dispatcher.BeginInvoke(() => OnEnded(run, reason));
+            recorder.SoundLost += () => _dispatcher.BeginInvoke(() => AnnounceSound(run));
             _diskTimer.Start();
 
             // Le réglage de veille de Windows ne doit pas couper une vidéo : levé à la fin de l'essai, sur ce même fil.
@@ -393,12 +394,23 @@ internal sealed class RecordingController
             run.Clock.Start();
             _ticker.Start();
             DisplayChanged?.Invoke();
+            AnnounceSound(run);
+        }
+    }
 
-            // Tout de suite : découvrir à la fin qu'une longue vidéo est muette serait trop tard. La fin le redira.
-            if (RecordingRules.StartSoundMessage(run.Recorder!.AudioProblem) is { } sound)
-            {
-                _notify(Loc.T(sound), null);
-            }
+    // Tout de suite : découvrir à la fin qu'une longue vidéo est muette serait trop tard. La fin le redira.
+    // Une seule fois, le son d'une reprise se décidant après le démarrage. Avant les premières images, le démarrage s'en charge ; après l'arrêt, la fin.
+    private void AnnounceSound(Run run)
+    {
+        if (run.SoundAnnounced || !ReferenceEquals(_run, run) || _state.Status != RecordingStatus.Recording || !run.Clock.IsRunning)
+        {
+            return;
+        }
+
+        if (RecordingRules.StartSoundMessage(run.Recorder!.AudioProblem) is { } sound)
+        {
+            run.SoundAnnounced = true;
+            _notify(Loc.T(sound), null);
         }
     }
 
@@ -526,7 +538,10 @@ internal sealed class RecordingController
     {
         await Task.Delay(LateFileCheck);
 
-        if (!_close.IsQuiet && recorder.SavedPath is { } path && path != announced && FormatEnd(RecordingEndReason.Failed, path, recorder.AudioProblem, recorder.MayBeIncomplete) is { } message)
+        var path = recorder.SavedPath;
+
+        // Un fichier annoncé peut aussi avoir disparu : un vrai disque plein, découvert quand l'encodeur a enfin fini, le supprime.
+        if (!_close.IsQuiet && path != announced && FormatEnd(RecordingEndReason.Failed, path, recorder.AudioProblem, recorder.MayBeIncomplete) is { } message)
         {
             _notify(message, ShowFile(recorder, path));
         }
@@ -591,5 +606,7 @@ internal sealed class RecordingController
         public bool HoldsExclusion { get; set; }
 
         public bool CheckingDisk { get; set; }
+
+        public bool SoundAnnounced { get; set; }
     }
 }

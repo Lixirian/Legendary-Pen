@@ -22,7 +22,7 @@ namespace LegendaryPen.App;
 /// et l'encodeur la copie au rythme d'une horloge, car Windows n'envoie une image que si l'écran change.
 ///
 /// Le son choisi s'ajoute en second flux, sur la même horloge. Il ne fait jamais échouer un enregistrement : s'il manque,
-/// la vidéo se fait sans lui, et <see cref="AudioProblem"/> le dit à la fin.
+/// la vidéo se fait sans lui. <see cref="SoundLost"/> le dit dès que c'est décidé, et <see cref="AudioProblem"/> le redit à la fin.
 ///
 /// Une instance ne sert qu'une fois. <see cref="StartAsync"/> ne lève que si l'enregistrement ne peut pas être tenté.
 /// Toute autre fin, y compris une erreur au démarrage, passe par <see cref="Ended"/>, levé une seule fois, sur une tâche à
@@ -48,6 +48,9 @@ internal sealed class ScreenRecorder : IAsyncDisposable
     private static readonly TimeSpan CancelGrace = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan CloseCaptureLimit = TimeSpan.FromSeconds(1);
 
+    // L'abandon finit avant la limite de RecordingController : à 15 s, le fichier gardé doit déjà être annoncé.
+    private static readonly TimeSpan AbandonMargin = TimeSpan.FromMilliseconds(200);
+
     // Attributs Media Foundation, depuis mfapi.h.
     private static readonly Guid MtYuvMatrix = new("3e23d450-2c75-4d25-a00e-b91670d12327");
     private static readonly Guid MtVideoPrimaries = new("dbfbe4d7-0740-4ee0-8192-850ab0e21935");
@@ -71,7 +74,8 @@ internal sealed class ScreenRecorder : IAsyncDisposable
     private Direct3D11CaptureFramePool? _framePool;
     private GraphicsCaptureSession? _session;
     private Direct3D11CaptureFrame? _latest;
-    private EncodingAttempt? _attempt;
+    private volatile EncodingAttempt? _attempt;
+    private volatile bool _abandoned;
     private volatile IAsyncActionWithProgress<double>? _transcode;
     private volatile string? _savedPath;
     private volatile bool _mayBeIncomplete;
@@ -90,6 +94,12 @@ internal sealed class ScreenRecorder : IAsyncDisposable
     private RecordingEndReason? _endRequest;
 
     public event Action<RecordingEndReason>? Ended;
+
+    /// <summary>
+    /// Cet essai, ou le suivant, n'a pas de son : lire <see cref="AudioProblem"/>. Peut être levé plusieurs fois, sur une tâche à
+    /// lui, et dès avant la première image : le son d'un essai suivant se décide après la fin de <see cref="StartAsync"/>.
+    /// </summary>
+    public event Action? SoundLost;
 
     public static bool IsSupported
     {
@@ -192,13 +202,13 @@ internal sealed class ScreenRecorder : IAsyncDisposable
         try
         {
             CloseEverything();
-            var settled = SettleFile(path, failure is not null && IsDiskFull(failure));
+            var accounted = SettleFile(path, failure is not null && IsDiskFull(failure));
 
             if (failure is not null)
             {
                 reason = IsDiskFull(failure) ? RecordingEndReason.DiskFull : RecordingEndReason.Failed;
             }
-            else if (settled)
+            else if (accounted)
             {
                 lock (_endGate)
                 {
@@ -285,8 +295,11 @@ internal sealed class ScreenRecorder : IAsyncDisposable
                 // Le son ne fait jamais échouer une vidéo : si c'est peut-être lui, un dernier essai se passe de lui.
                 Debug.WriteLine(again);
                 DeleteTemporary();
-                await EncodeAsync(hardware: false, withSound: false).ConfigureAwait(false);
+
+                // Avant cet essai, qui peut durer toute la vidéo : découvrir à la fin qu'elle est muette serait trop tard.
                 _audioProblem = Unavailable();
+                RaiseSoundLost();
+                await EncodeAsync(hardware: false, withSound: false).ConfigureAwait(false);
             }
         }
     }
@@ -294,13 +307,36 @@ internal sealed class ScreenRecorder : IAsyncDisposable
     private RecordingAudioProblem Unavailable() =>
         _audioKind == RecordingAudio.Microphone ? RecordingAudioProblem.MicrophoneUnavailable : RecordingAudioProblem.SystemSoundUnavailable;
 
+    // Mesuré en temps de vidéo, pas en images envoyées : un encodeur lent en saute beaucoup, et la reprise efface le fichier.
     private bool CanRetry(Exception exception) =>
-        !_stopping.IsCancellationRequested && !IsDiskFull(exception) && _attempt is not { DeviceLost: true } && (_attempt?.Samples ?? 0) < StartConfirmedSamples;
+        !_stopping.IsCancellationRequested && !IsDiskFull(exception) && _attempt is not { DeviceLost: true } && (_attempt?.LastIndex ?? -1) + 1 < StartConfirmedSamples;
+
+    private void RaiseSoundLost()
+    {
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                SoundLost?.Invoke();
+            }
+            catch (Exception exception)
+            {
+                // Une erreur de l'abonné ne doit pas fermer l'application depuis un fil de fond.
+                Debug.WriteLine(exception);
+            }
+        });
+    }
 
     private AudioSource? OpenAudio()
     {
         var audio = AudioSource.TryStart(_audioKind, Probes);
         _audioProblem = audio is null ? Unavailable() : RecordingAudioProblem.None;
+
+        if (audio is null)
+        {
+            RaiseSoundLost();
+        }
+
         return audio;
     }
 
@@ -488,7 +524,7 @@ internal sealed class ScreenRecorder : IAsyncDisposable
         }
     }
 
-    /// <summary>Un fil par flux, le temps de l'essai. Chacun s'arrête de lui-même quand l'essai est fermé et ses demandes servies.</summary>
+    /// <summary>Un fil par flux, le temps de l'essai. Chacun s'arrête de lui-même quand l'essai est fermé, ou abandonné, et ses demandes servies.</summary>
     private void StartServing(EncodingAttempt attempt)
     {
         attempt.Enter();
@@ -498,6 +534,12 @@ internal sealed class ScreenRecorder : IAsyncDisposable
         {
             attempt.Enter();
             new Thread(() => ServeAudio(attempt)) { IsBackground = true, Name = "Legendary Pen audio samples" }.Start();
+        }
+
+        // L'abandon a pu passer juste avant que cet essai soit connu.
+        if (_abandoned)
+        {
+            attempt.StopServing();
         }
     }
 
@@ -532,6 +574,7 @@ internal sealed class ScreenRecorder : IAsyncDisposable
         }
         finally
         {
+            Probes.ServerEnded();
             attempt.Leave();
         }
     }
@@ -562,6 +605,7 @@ internal sealed class ScreenRecorder : IAsyncDisposable
         }
         finally
         {
+            Probes.ServerEnded();
             attempt.Leave();
         }
     }
@@ -772,7 +816,7 @@ internal sealed class ScreenRecorder : IAsyncDisposable
     /// <summary>La fin tient en 15 s : au-delà, l'encodeur est annulé puis abandonné, et l'enregistrement a échoué.</summary>
     private async Task WatchEndAsync()
     {
-        if (await Task.WhenAny(_finished.Task, Task.Delay(StopTimeout - CancelGrace - CloseCaptureLimit)).ConfigureAwait(false) == _finished.Task)
+        if (await Task.WhenAny(_finished.Task, Task.Delay(StopTimeout - CancelGrace - CloseCaptureLimit - AbandonMargin)).ConfigureAwait(false) == _finished.Task)
         {
             return;
         }
@@ -804,6 +848,10 @@ internal sealed class ScreenRecorder : IAsyncDisposable
     /// </summary>
     private async Task AbandonAsync()
     {
+        // Un encodeur bloqué ne rendra peut-être jamais la main : les fils d'échantillons n'attendent plus ses demandes.
+        _abandoned = true;
+        _attempt?.StopServing();
+
         var hasContent = Task.Run(TemporaryHasContent);
         await Task.WhenAny(Task.WhenAll(Task.Run(CloseCapture), hasContent), Task.Delay(CloseCaptureLimit)).ConfigureAwait(false);
 
@@ -927,7 +975,8 @@ internal sealed class ScreenRecorder : IAsyncDisposable
 
     /// <summary>
     /// Fixe le sort du fichier, sans jamais perdre une vidéo : voir <see cref="RecordingFile"/>.
-    /// Renvoie vrai si la vidéo porte son nom final, ou s'il n'y avait rien à écrire.
+    /// Renvoie vrai si la vidéo est quelque part, même sous son nom temporaire, ou s'il n'y avait rien à écrire. Faux si un
+    /// fichier écrit a disparu : c'est le seul vrai échec sans exception, et les autres fins gardent leur raison.
     /// </summary>
     private bool SettleFile(string path, bool diskFull)
     {
@@ -953,7 +1002,7 @@ internal sealed class ScreenRecorder : IAsyncDisposable
             _temporaryCreated = outcome.SavedPath == _temporaryPath;
         }
 
-        return outcome.IsInPlace;
+        return !outcome.IsLost;
     }
 
     // Seulement pour une reprise : l'essai abandonné a moins d'une seconde de vidéo, et le suivant réécrit ce même fichier.
@@ -1144,14 +1193,28 @@ internal sealed class EncodingAttempt
         AudioRequests.Dispose();
     }
 
-    public void Close()
+    /// <summary>
+    /// Les fils d'échantillons s'arrêtent une fois servies les demandes en attente, et une demande tardive reçoit aussitôt une
+    /// fin de flux. Réservé à l'abandon : à un arrêt normal, l'encodeur demande encore de quoi finir, et le son doit se vider.
+    /// </summary>
+    public void StopServing()
     {
         lock (_requestGate)
         {
+            if (!_acceptsRequests)
+            {
+                return;
+            }
+
             _acceptsRequests = false;
             VideoRequests.CompleteAdding();
             AudioRequests.CompleteAdding();
         }
+    }
+
+    public void Close()
+    {
+        StopServing();
 
         lock (Gate)
         {
@@ -1342,6 +1405,9 @@ internal sealed class RecorderProbes
     /// <summary>Remplace l'heure de chaque paquet, pour simuler une horloge de périphérique qui dérive.</summary>
     public Func<long, long>? AudioPacketTime { get; set; }
 
+    /// <summary>Remplace les indications de chaque paquet, pour simuler une heure de périphérique déclarée fausse.</summary>
+    public Func<int, int>? AudioPacketFlags { get; set; }
+
     /// <summary>Écarte un paquet selon son heure, pour simuler un périphérique qui se tait. Une exception simule sa disparition.</summary>
     public Func<long, bool>? AudioPacketDropped { get; set; }
 
@@ -1367,4 +1433,11 @@ internal sealed class RecorderProbes
     public int PeakPending { get; set; }
 
     public int TexturesCreated { get; set; }
+
+    /// <summary>Fils d'échantillons terminés, pour vérifier qu'aucun ne reste en attente après un abandon.</summary>
+    public int ServersEnded => _serversEnded;
+
+    public void ServerEnded() => Interlocked.Increment(ref _serversEnded);
+
+    private int _serversEnded;
 }
