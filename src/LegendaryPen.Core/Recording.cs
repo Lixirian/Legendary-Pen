@@ -68,6 +68,31 @@ public sealed class RecordingState
     }
 }
 
+/// <summary>
+/// Demandes en cours de retrait des captures. L'enregistrement et un trait de surligneur retirent les mêmes fenêtres :
+/// seule la dernière levée les rétablit, sinon la fin d'un trait ferait apparaître la barre dans la vidéo.
+/// </summary>
+public sealed class CaptureExclusionCount
+{
+    private int _count;
+
+    public bool IsExcluded => _count > 0;
+
+    public void Acquire() => _count++;
+
+    /// <summary>Vrai si plus personne ne demande l'exclusion : les fenêtres sont à rétablir.</summary>
+    public bool Release()
+    {
+        if (_count == 0)
+        {
+            return false;
+        }
+
+        _count--;
+        return _count == 0;
+    }
+}
+
 public static class RecordingRules
 {
     /// <summary>Espace libre minimal pour continuer à enregistrer : 500 Mo.</summary>
@@ -92,6 +117,43 @@ public static class RecordingRules
         (Math.Max(2, width & ~1), Math.Max(2, height & ~1));
 
     public static bool HasRoomToContinue(long freeBytes) => freeBytes >= MinFreeBytes;
+
+    /// <summary>Seule une valeur réelle arrête la vidéo : une requête en échec (null) ne dit rien de la place restante.</summary>
+    public static bool ShouldStopForDisk(long? freeBytes) => freeBytes is { } free && !HasRoomToContinue(free);
+
+    /// <summary>Durée affichée : « 12:34 », puis « 1:02:03 » à partir d'une heure.</summary>
+    public static string FormatElapsed(TimeSpan elapsed)
+    {
+        var whole = (long)elapsed.TotalSeconds;
+        var hours = whole / 3600;
+        var minutes = (whole % 3600) / 60;
+        var seconds = whole % 60;
+
+        return hours > 0
+            ? string.Create(CultureInfo.InvariantCulture, $"{hours}:{minutes:00}:{seconds:00}")
+            : string.Create(CultureInfo.InvariantCulture, $"{minutes}:{seconds:00}");
+    }
+
+    /// <summary>
+    /// Textes français, clés de <see cref="Loc"/>, de la notification de fin, ligne par ligne. {0} est le fichier.
+    /// Un arrêt demandé qui n'a rien écrit ne dit rien : il n'y a rien à annoncer.
+    /// </summary>
+    public static IReadOnlyList<string> EndMessages(RecordingEndReason reason, bool hasFile)
+    {
+        return (reason, hasFile) switch
+        {
+            (RecordingEndReason.Requested, true) => ["Vidéo enregistrée : {0}"],
+            (RecordingEndReason.MonitorClosed, true) => ["L'écran enregistré a été débranché.", "Vidéo enregistrée : {0}"],
+            (RecordingEndReason.MonitorClosed, false) => ["L'écran enregistré a été débranché."],
+            (RecordingEndReason.ScreenChanged, true) => ["La résolution de l'écran a changé : enregistrement arrêté.", "Vidéo enregistrée : {0}"],
+            (RecordingEndReason.ScreenChanged, false) => ["La résolution de l'écran a changé : enregistrement arrêté."],
+            (RecordingEndReason.DiskFull, true) => ["Plus assez de place sur le disque : enregistrement arrêté.", "Vidéo enregistrée : {0}"],
+            (RecordingEndReason.DiskFull, false) => ["Plus assez de place sur le disque : enregistrement arrêté."],
+            (RecordingEndReason.Failed, true) => ["L'enregistrement s'est arrêté sur une erreur. Vidéo gardée : {0}"],
+            (RecordingEndReason.Failed, false) => ["Enregistrement impossible sur ce PC."],
+            _ => [],
+        };
+    }
 
     /// <summary>Débit vidéo : 8 Mb/s en 2560 x 1440, proportionnel à la surface, entre 2 et 40 Mb/s.</summary>
     public static int VideoBitRate(int width, int height)

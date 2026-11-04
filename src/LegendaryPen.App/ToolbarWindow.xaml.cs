@@ -40,6 +40,7 @@ public partial class ToolbarWindow : Window
     private readonly ContextMenu _presentationMenu = new();
     private readonly DispatcherTimer _presentationMenuWatch = new() { Interval = TimeSpan.FromMilliseconds(50) };
     private readonly List<(MenuItem Item, HotkeyAction Action, Func<bool> IsOn)> _presentationItems = [];
+    private readonly CaptureExclusionCount _captureExclusions = new();
 
     private TimeSpan _collapseDelay;
     private HotkeyMap _hotkeys;
@@ -58,6 +59,8 @@ public partial class ToolbarWindow : Window
     private BoardBackground _placedBackground;
     private LayersWindow? _layersWindow;
     private bool _closing;
+    private string _recordText = Loc.T("Enregistrer l'écran");
+    private bool _recordEnabled = true;
 
     public ToolbarWindow(
         AppState state,
@@ -108,6 +111,9 @@ public partial class ToolbarWindow : Window
         _histories.Changed += Refresh;
         _overlays.TextEditingChanged += Refresh;
         ContentRendered += OnFirstRender;
+
+        // Une infobulle est une fenêtre à part : en plein enregistrement, elle ne doit pas entrer dans la vidéo avec le bouton survolé.
+        EventManager.RegisterClassHandler(typeof(System.Windows.Controls.ToolTip), System.Windows.Controls.ToolTip.OpenedEvent, new RoutedEventHandler((sender, _) => ExcludePopup((Visual)sender)));
     }
 
     /// <summary>Position actuelle de la barre, en pixels physiques.</summary>
@@ -138,6 +144,11 @@ public partial class ToolbarWindow : Window
     public event Action? SettingsRequested;
 
     public event Action? SignPdfRequested;
+
+    public event Action? RecordRequested;
+
+    /// <summary>À attendre avant de lancer l'installateur : il remplace l'application, une vidéo en cours doit être finie.</summary>
+    public Func<Task>? BeforeUpdateInstall { get; set; }
 
     /// <summary>Fenêtre sous laquelle les overlays se tiennent : le panneau des calques quand il est ouvert, sinon la barre.</summary>
     public event Action<IntPtr>? OverlayAnchorChanged;
@@ -237,7 +248,7 @@ public partial class ToolbarWindow : Window
     {
         if (_availableUpdate is { } manifest && _updates is not null && !_dialogOpen)
         {
-            RunDialog(() => new UpdateWindow(manifest, _updates).ShowDialog());
+            RunDialog(() => new UpdateWindow(manifest, _updates, BeforeUpdateInstall).ShowDialog());
         }
     }
 
@@ -701,6 +712,7 @@ public partial class ToolbarWindow : Window
             [HotkeyAction.Magnifier] = _presentation.ToggleMagnifier,
             [HotkeyAction.ClickEffects] = _presentation.ToggleClickEffects,
             [HotkeyAction.Layers] = ToggleLayersPanel,
+            [HotkeyAction.Record] = () => RecordRequested?.Invoke(),
         };
     }
 
@@ -733,6 +745,7 @@ public partial class ToolbarWindow : Window
         Tip(CaptureButton, "Capture d'écran", HotkeyAction.Capture);
         Tip(LayersButton, "Calques", HotkeyAction.Layers);
         Tip(PreviousColorButton, "Couleur précédente", HotkeyAction.PreviousColor);
+        UpdateRecordTip();
 
         // Les trois effets de présentation affichent leur raccourci, quand il y en a un, dans le menu du bouton.
         foreach (var (item, action, _) in _presentationItems)
@@ -781,6 +794,7 @@ public partial class ToolbarWindow : Window
             Win32.WasMouseButtonPressed();
             Win32.WasEscapePressed();
             _presentationMenuWatch.Start();
+            ExcludePopup(_presentationMenu);
         };
         _presentationMenuWatch.Tick += OnPresentationMenuWatchTick;
     }
@@ -838,6 +852,13 @@ public partial class ToolbarWindow : Window
             Refresh();
         };
         window.Show();
+
+        // Ouvert en plein enregistrement : encore invisible à ce stade, il ne doit jamais entrer dans la vidéo.
+        if (_captureExclusions.IsExcluded)
+        {
+            window.SetExcludedFromCapture(true);
+        }
+
         Refresh();
     }
 
@@ -863,14 +884,67 @@ public partial class ToolbarWindow : Window
     }
 
     /// <summary>
-    /// Retire la barre et son panneau des captures d'écran, ou les y remet. Renvoie faux si le panneau n'a pas pu l'être :
-    /// la capture serait fausse.
+    /// Retire la barre et son panneau des captures d'écran. Renvoie faux si Windows refuse : la capture serait fausse.
+    /// Chaque appel, même refusé, se solde par un <see cref="ReleaseCaptureExclusion"/> : l'enregistrement et le surligneur se croisent.
     /// </summary>
-    public bool SetCaptureExcluded(bool excluded)
+    public bool AddCaptureExclusion()
+    {
+        _captureExclusions.Acquire();
+
+        if (_presentationMenu.IsOpen)
+        {
+            ExcludePopup(_presentationMenu);
+        }
+
+        return ApplyCaptureExclusion(true);
+    }
+
+    /// <summary>Rend la barre et son panneau aux captures, une fois levée la dernière demande.</summary>
+    public void ReleaseCaptureExclusion()
+    {
+        // À la fermeture de l'application, ces fenêtres n'existent déjà plus.
+        if (_captureExclusions.Release() && !_closing)
+        {
+            ApplyCaptureExclusion(false);
+        }
+    }
+
+    private bool ApplyCaptureExclusion(bool excluded)
     {
         var panel = _layersWindow?.SetExcludedFromCapture(excluded) ?? true;
         var bar = Win32.SetExcludedFromCapture(_handle, excluded);
-        return panel && (bar || !excluded);
+        return panel && bar;
+    }
+
+    private void ExcludePopup(Visual popup)
+    {
+        if (_captureExclusions.IsExcluded && PresentationSource.FromVisual(popup) is HwndSource source)
+        {
+            Win32.SetExcludedFromCapture(source.Handle, true);
+        }
+    }
+
+    /// <summary>Montre l'état de l'enregistrement sur le bouton : rouge avec la durée une fois lancé.</summary>
+    public void ShowRecording(RecordingStatus status, string elapsed, string command, bool enabled)
+    {
+        var filming = status is RecordingStatus.Recording or RecordingStatus.Finishing;
+
+        _recordText = command;
+        _recordEnabled = enabled;
+        RecordButton.IsEnabled = enabled;
+        RecordButton.Background = filming ? (Brush)FindResource("SelectedBrush") : Brushes.Transparent;
+        RecordGlyph.Visibility = filming ? Visibility.Collapsed : Visibility.Visible;
+        RecordTime.Visibility = filming ? Visibility.Visible : Visibility.Collapsed;
+        RecordTimeText.Text = elapsed;
+        UpdateRecordTip();
+    }
+
+    private void UpdateRecordTip()
+    {
+        var shortcut = _hotkeys[HotkeyAction.Record];
+
+        RecordButton.ToolTip = _recordEnabled && !shortcut.IsNone ? $"{_recordText} ({shortcut.Format()})" : _recordText;
+        AutomationProperties.SetName(RecordButton, _recordText);
     }
 
     private void OnPresentationClicked(object sender, RoutedEventArgs e)
@@ -1068,6 +1142,8 @@ public partial class ToolbarWindow : Window
     }
 
     private void OnCaptureClicked(object sender, RoutedEventArgs e) => CaptureRequested?.Invoke();
+
+    private void OnRecordClicked(object sender, RoutedEventArgs e) => RecordRequested?.Invoke();
 
     private void OnPreviousColorClicked(object sender, RoutedEventArgs e) => _pen.RestorePreviousColor();
 

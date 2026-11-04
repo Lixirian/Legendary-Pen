@@ -181,6 +181,19 @@ internal static partial class Win32
         return SetWindowDisplayAffinity(window, excluded ? WdaExcludeFromCapture : WdaNone);
     }
 
+    /// <summary>
+    /// Espace libre pour cet utilisateur sur le disque du dossier, réseau compris ; null si Windows ne répond pas.
+    /// </summary>
+    public static long? FreeBytes(string folder)
+    {
+        // Windows exige la barre finale pour un dossier réseau.
+        var directory = System.IO.Path.EndsInDirectorySeparator(folder) ? folder : folder + System.IO.Path.DirectorySeparatorChar;
+
+        return GetDiskFreeSpaceExW(directory, out var free, out _, out _)
+            ? (long)Math.Min(free, long.MaxValue)
+            : null;
+    }
+
     /// <summary>Attend que l'écran ait été recomposé.</summary>
     public static void WaitForComposition() => DwmFlush();
 
@@ -416,6 +429,10 @@ internal static partial class Win32
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool SetWindowDisplayAffinity(IntPtr window, uint affinity);
+
+    [LibraryImport("kernel32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetDiskFreeSpaceExW(string directory, out ulong freeToCaller, out ulong total, out ulong totalFree);
 
     [LibraryImport("dwmapi.dll")]
     private static partial int DwmFlush();

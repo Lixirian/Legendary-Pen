@@ -48,6 +48,7 @@ public sealed partial class LocalizationTests : IDisposable
         "The encoder keeps every frame.",
         "The graphics device was removed: 0x",
         "The recording did not start in time.",
+        "Legendary Pen - Countdown",
     ];
 
     public void Dispose() => Loc.Use(AppLanguage.French, "fr");
@@ -197,7 +198,7 @@ public sealed partial class LocalizationTests : IDisposable
                 {
                     var value = match.Groups[2].Value.Replace(@"\n", "\n", StringComparison.Ordinal);
                     var isWrapped = line[..match.Index].TrimEnd().EndsWith("Loc.T(", StringComparison.Ordinal) || line.StartsWith("Tip(", StringComparison.Ordinal);
-                    var isCatalog = line.StartsWith("new(HotkeyAction.", StringComparison.Ordinal);
+                    var isCatalog = line.StartsWith("new(HotkeyAction.", StringComparison.Ordinal) || line.StartsWith("(RecordingEndReason.", StringComparison.Ordinal);
 
                     if (isWrapped)
                     {

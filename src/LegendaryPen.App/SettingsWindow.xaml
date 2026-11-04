@@ -59,6 +59,13 @@
                                 AutomationProperties.Name="Délai de repli"
                                 ValueChanged="OnSliderChanged" />
                     </DockPanel>
+
+                    <TextBlock Text="Enregistrement vidéo" Style="{StaticResource Section}" />
+                    <TextBlock Text="Son de la vidéo :" />
+                    <!-- La tâche 5 active ces deux sources, qui ne feraient rien pour l'instant : le réglage est déjà conservé. -->
+                    <RadioButton x:Name="AudioNoneRadio" Margin="0,4" Content="Aucun" GroupName="RecordingAudio" />
+                    <RadioButton x:Name="AudioSystemRadio" Margin="0,4" Content="Son de l'ordinateur" GroupName="RecordingAudio" IsEnabled="False" />
+                    <RadioButton x:Name="AudioMicrophoneRadio" Margin="0,4" Content="Micro" GroupName="RecordingAudio" IsEnabled="False" />
                 </StackPanel>
             </TabItem>
 

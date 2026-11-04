@@ -48,11 +48,11 @@ public class HotkeyMapTests
     }
 
     [Fact]
-    public void Only_the_mode_toolbar_and_presentation_shortcuts_stay_active_everywhere()
+    public void Only_the_mode_toolbar_presentation_and_record_shortcuts_stay_active_everywhere()
     {
         var global = HotkeyCatalog.All.Where(definition => definition.IsGlobal).Select(definition => definition.Action);
 
-        Assert.Equal([HotkeyAction.ToggleMode, HotkeyAction.ToggleToolbar, HotkeyAction.Spotlight, HotkeyAction.Magnifier, HotkeyAction.ClickEffects], global);
+        Assert.Equal([HotkeyAction.ToggleMode, HotkeyAction.ToggleToolbar, HotkeyAction.Spotlight, HotkeyAction.Magnifier, HotkeyAction.ClickEffects, HotkeyAction.Record], global);
     }
 
     [Fact]

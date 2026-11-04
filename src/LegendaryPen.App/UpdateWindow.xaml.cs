@@ -11,11 +11,14 @@ public partial class UpdateWindow : Window
     private readonly UpdateManifest _manifest;
     private readonly UpdateService _updates;
     private readonly CancellationTokenSource _cancellation = new();
+    private readonly Func<Task>? _beforeInstall;
 
-    public UpdateWindow(UpdateManifest manifest, UpdateService updates)
+    /// <param name="beforeInstall">À attendre avant de lancer l'installateur, s'il y a une vidéo à finir.</param>
+    public UpdateWindow(UpdateManifest manifest, UpdateService updates, Func<Task>? beforeInstall = null)
     {
         _manifest = manifest;
         _updates = updates;
+        _beforeInstall = beforeInstall;
 
         InitializeComponent();
 
@@ -41,6 +44,12 @@ public partial class UpdateWindow : Window
         {
             var progress = new Progress<double>(value => DownloadProgress.Value = value);
             var installer = await _updates.DownloadAsync(_manifest, progress, _cancellation.Token);
+
+            if (_beforeInstall is not null)
+            {
+                await _beforeInstall();
+                _cancellation.Token.ThrowIfCancellationRequested();
+            }
 
             UpdateService.StartInstaller(installer);
             Application.Current.Shutdown();

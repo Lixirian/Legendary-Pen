@@ -25,6 +25,8 @@ public partial class App : Application
     private readonly LayerStacks _layerStacks = new();
     private readonly PresentationState _presentation = new();
     private PresentationManager? _presenter;
+    private readonly RecordingState _recordingState = new();
+    private RecordingController? _recording;
     private ToolbarWindow? _toolbar;
     private UpdateService? _updates;
     private LiveOptions? _options;
@@ -135,7 +137,20 @@ public partial class App : Application
         _overlays.KeepBelowToolbar(toolbarHandle);
         _presenter.KeepBelowToolbar(toolbarHandle);
 
-        _tray = new TrayIcon(_toolbar.ToggleBarVisibility, RequestCapture, RequestSignPdf, _presentation, RequestSettings, Shutdown);
+        _recording = new RecordingController(
+            _recordingState,
+            Dispatcher,
+            RecordedMonitor,
+            () => _settings,
+            _toolbar.AddCaptureExclusion,
+            _toolbar.ReleaseCaptureExclusion,
+            (message, clicked) => _tray?.Notify(message, clicked));
+        _recording.DisplayChanged += ShowRecording;
+        _toolbar.RecordRequested += RequestRecord;
+        _toolbar.BeforeUpdateInstall = _recording.StopAndWaitAsync;
+        ShowRecording();
+
+        _tray = new TrayIcon(_toolbar.ToggleBarVisibility, RequestCapture, RequestRecord, RecordMenuState, RequestSignPdf, _presentation, RequestSettings, Shutdown);
 
         _pen.Changed += RestartSaveTimer;
         _state.Changed += () =>
@@ -183,8 +198,13 @@ public partial class App : Application
             SaveAnnotations();
         }
 
-        // En dernier : son arrêt peut attendre une seconde le fil de la loupe, l'enregistrement passe avant.
+        // Après les annotations et les réglages : la vidéo peut demander jusqu'à 15 s.
+        var recording = _recording?.StopAndWaitAsync() ?? Task.CompletedTask;
+
+        // Son arrêt peut attendre une seconde le fil de la loupe, l'enregistrement passe avant. La vidéo se finit pendant ce temps.
         _presenter?.Dispose();
+
+        WaitForRecording(recording);
 
         _instanceGuard?.Dispose();
         base.OnExit(e);
@@ -196,6 +216,47 @@ public partial class App : Application
     private void RequestSettings() => Dispatcher.BeginInvoke(OpenSettings);
 
     private void RequestSignPdf() => Dispatcher.BeginInvoke(OpenPdfSigning);
+
+    private void RequestRecord() => Dispatcher.BeginInvoke(() => _recording!.ToggleAsync());
+
+    private MonitorArea RecordedMonitor()
+    {
+        var monitors = _toolbar!.Monitors;
+        var name = _toolbar.CurrentMonitorName;
+
+        return monitors.FirstOrDefault(monitor => monitor.DeviceName == name)
+            ?? monitors.FirstOrDefault(monitor => monitor.IsPrimary)
+            ?? monitors[0];
+    }
+
+    private void ShowRecording()
+    {
+        var recording = _recording!;
+        _toolbar!.ShowRecording(recording.Status, recording.ElapsedText, recording.CommandText, recording.CanCommand);
+    }
+
+    private (string Text, bool Enabled) RecordMenuState()
+    {
+        var recording = _recording!;
+        var text = recording.Status == RecordingStatus.Recording ? $"{recording.CommandText} ({recording.ElapsedText})" : recording.CommandText;
+
+        return (text, recording.CanCommand);
+    }
+
+    // OnExit est synchrone sur le fil de l'interface, et la fin de l'arrêt y repasse : il faut faire tourner les messages pendant l'attente.
+    // La marge couvre ce dernier passage, l'arrêt lui-même étant borné à 15 s.
+    private static void WaitForRecording(Task recording)
+    {
+        if (recording.IsCompleted)
+        {
+            return;
+        }
+
+        var frame = new DispatcherFrame();
+        _ = Task.WhenAny(recording, Task.Delay(RecordingController.StopLimit + TimeSpan.FromMilliseconds(500)))
+            .ContinueWith(_ => frame.Continue = false, TaskScheduler.Default);
+        Dispatcher.PushFrame(frame);
+    }
 
     private void RunCapture()
     {
@@ -248,16 +309,16 @@ public partial class App : Application
             return null;
         }
 
-        if (!_toolbar!.SetCaptureExcluded(true))
+        if (!_toolbar!.AddCaptureExclusion())
         {
-            _toolbar.SetCaptureExcluded(false);
+            _toolbar.ReleaseCaptureExclusion();
             effects.Dispose();
             return null;
         }
 
         return new CaptureRestore(() =>
         {
-            _toolbar.SetCaptureExcluded(false);
+            _toolbar.ReleaseCaptureExclusion();
             effects.Dispose();
         });
     }

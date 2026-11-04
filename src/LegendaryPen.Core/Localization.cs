@@ -245,6 +245,24 @@ public static class Translations
         ["Impossible d'enregistrer les annotations."] = "Could not save the annotations.",
         ["Impossible de supprimer les annotations enregistrées.\n\n{0}"] = "Could not delete the saved annotations.\n\n{0}",
 
+        // Enregistrement vidéo
+        ["Enregistrer l'écran"] = "Record the screen",
+        ["Arrêter l'enregistrement"] = "Stop recording",
+        ["Annuler le décompte"] = "Cancel the countdown",
+        ["Finalisation de la vidéo…"] = "Finishing the video…",
+        ["L'enregistrement va commencer"] = "Recording is about to start",
+        ["Vidéo enregistrée : {0}"] = "Video saved: {0}",
+        ["Plus assez de place sur le disque : enregistrement arrêté."] = "Not enough disk space: recording stopped.",
+        ["L'écran enregistré a été débranché."] = "The recorded screen was disconnected.",
+        ["La résolution de l'écran a changé : enregistrement arrêté."] = "The screen resolution changed: recording stopped.",
+        ["L'enregistrement s'est arrêté sur une erreur. Vidéo gardée : {0}"] = "Recording stopped on an error. Video kept: {0}",
+        ["Enregistrement impossible sur ce PC."] = "Recording is not possible on this PC.",
+        ["Le dossier des vidéos n'a pas pu être créé : {0}"] = "The video folder could not be created: {0}",
+        ["Enregistrement vidéo"] = "Screen recording",
+        ["Son de la vidéo :"] = "Video sound:",
+        ["Son de l'ordinateur"] = "Computer sound",
+        ["Micro"] = "Microphone",
+
         // Raccourcis
         ["Basculer entre Souris et Dessin"] = "Switch between Mouse and Draw",
         ["Quitter le mode Dessin"] = "Exit Draw mode",

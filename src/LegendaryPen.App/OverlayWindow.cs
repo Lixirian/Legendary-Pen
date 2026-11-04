@@ -243,7 +243,7 @@ internal sealed class OverlayWindow : Window
                 return null;
             }
 
-            Win32.SetExcludedFromCapture(ToolbarHandle, true);
+            // Retire aussi la barre et son panneau, par une demande comptée : la fin du trait ne doit pas les rendre à un enregistrement.
             effects = _excludeEffectsFromCapture();
 
             if (effects is null)
@@ -262,7 +262,6 @@ internal sealed class OverlayWindow : Window
         finally
         {
             Win32.SetExcludedFromCapture(_handle, false);
-            Win32.SetExcludedFromCapture(ToolbarHandle, false);
             effects?.Dispose();
         }
     }

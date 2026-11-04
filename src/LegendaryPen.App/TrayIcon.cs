@@ -10,7 +10,7 @@ internal sealed class TrayIcon : IDisposable
     private readonly Forms.NotifyIcon _icon;
     private Action? _notificationClicked;
 
-    public TrayIcon(Action toggleToolbar, Action capture, Action signPdf, PresentationState presentation, Action settings, Action quit)
+    public TrayIcon(Action toggleToolbar, Action capture, Action record, Func<(string Text, bool Enabled)> recordState, Action signPdf, PresentationState presentation, Action settings, Action quit)
     {
         var menu = new Forms.ContextMenuStrip
         {
@@ -20,9 +20,12 @@ internal sealed class TrayIcon : IDisposable
             BackColor = DarkMenuColors.Surface,
             ForeColor = System.Drawing.Color.White,
             Font = new System.Drawing.Font("Segoe UI", 10f),
+            ShowItemToolTips = true,
         };
         menu.Items.Add(Loc.T("Afficher ou masquer la barre"), null, (_, _) => toggleToolbar());
         menu.Items.Add(Loc.T("Capture d'écran"), null, (_, _) => capture());
+        var recordItem = new Forms.ToolStripMenuItem(recordState().Text, null, (_, _) => record());
+        menu.Items.Add(recordItem);
         menu.Items.Add(Loc.T("Signer un PDF"), null, (_, _) => signPdf());
         menu.Items.Add(new Forms.ToolStripSeparator { BackColor = DarkMenuColors.Surface, ForeColor = DarkMenuColors.Line });
 
@@ -44,6 +47,11 @@ internal sealed class TrayIcon : IDisposable
 
         menu.Opening += (_, _) =>
         {
+            var (recordText, recordEnabled) = recordState();
+            recordItem.Text = recordText;
+            recordItem.Enabled = recordEnabled;
+            recordItem.ToolTipText = recordEnabled ? string.Empty : recordText;
+
             foreach (var (item, isOn) in effectItems)
             {
                 item.Checked = isOn();

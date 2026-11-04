@@ -38,6 +38,13 @@ public partial class SettingsWindow : Window
             _ => LanguageSystemRadio,
         }).IsChecked = true;
 
+        (settings.RecordingAudio switch
+        {
+            RecordingAudio.System => AudioSystemRadio,
+            RecordingAudio.Microphone => AudioMicrophoneRadio,
+            _ => AudioNoneRadio,
+        }).IsChecked = true;
+
         WheelBox.IsChecked = settings.WheelChangesSize;
         PressureBox.IsChecked = settings.PressureEnabled;
         HighlightSnapBox.IsChecked = settings.HighlightSnapEnabled;
@@ -204,6 +211,9 @@ public partial class SettingsWindow : Window
             CaptureDestination = ClipboardRadio.IsChecked == true ? CaptureDestination.Clipboard
                 : AskRadio.IsChecked == true ? CaptureDestination.Ask
                 : CaptureDestination.Folder,
+            RecordingAudio = AudioSystemRadio.IsChecked == true ? RecordingAudio.System
+                : AudioMicrophoneRadio.IsChecked == true ? RecordingAudio.Microphone
+                : RecordingAudio.None,
             Hotkeys = _hotkeys.ToSettings(),
         };
 

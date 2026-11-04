@@ -26,6 +26,7 @@ public enum HotkeyAction
     Magnifier,
     ClickEffects,
     Layers,
+    Record,
 }
 
 /// <summary>Combinaison de touches : modificateurs Windows et code de touche virtuelle. La touche 0 désactive.</summary>
@@ -146,6 +147,7 @@ public static class HotkeyCatalog
         new(HotkeyAction.Magnifier, "Loupe", HotkeyBinding.None, IsGlobal: true),
         new(HotkeyAction.ClickEffects, "Effets de clic", HotkeyBinding.None, IsGlobal: true),
         new(HotkeyAction.Layers, "Calques", HotkeyBinding.None),
+        new(HotkeyAction.Record, "Enregistrer l'écran", HotkeyBinding.None, IsGlobal: true),
     ];
 }
 

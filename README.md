@@ -29,7 +29,7 @@ L'installeur n'étant pas signé par un certificat commercial, Windows SmartScre
 | Afficher ou masquer la barre | `Ctrl+Maj+F9` ou icône près de l'horloge |
 | Changer la taille | Molette |
 
-Tous les raccourcis se modifient dans les réglages. Seuls `Ctrl+Maj+Espace` et `Ctrl+Maj+F9` restent réservés en permanence, avec ceux que l'on attribue au mode présentation. Les autres touches ne le sont qu'en mode Dessin, et sont libérées pendant la saisie d'un texte.
+Tous les raccourcis se modifient dans les réglages. Seuls `Ctrl+Maj+Espace` et `Ctrl+Maj+F9` restent réservés en permanence, avec ceux que l'on attribue au mode présentation et à l'enregistrement vidéo. Les autres touches ne le sont qu'en mode Dessin, et sont libérées pendant la saisie d'un texte.
 
 Au relâchement, le surligneur devient un trait droit et se cale sur la ligne de texte située dessous. L'analyse de l'écran reste locale ; rien n'est enregistré ni envoyé. L'option se désactive dans les réglages.
 
@@ -60,6 +60,17 @@ Chaque fond (transparent, tableau blanc, tableau noir) compte de 1 à 8 calques,
 Ajouter, supprimer ou déplacer un calque s'annule avec Ctrl+Z, contenu compris ; la visibilité et le calque actif n'entrent pas dans l'historique, et une annulation peut les ramener à leur état d'alors. Annuler agit toujours sur le calque concerné, et « Tout effacer » vide tous les calques en une seule action annulable. Avec « tableau sur un seul écran » (réglage « Afficher le tableau uniquement sur l'écran de la barre d'outils »), le panneau gère les calques du tableau. Aucun raccourci n'est attribué par défaut ; il se choisit dans les réglages.
 
 Quand les annotations sont conservées, les calques le sont aussi : ordre, visibilité et calque actif reviennent au redémarrage, et les anciens fichiers d'annotations restent lisibles. Si un écran branché en cours de route apporte ses propres calques, ils s'ajoutent à la pile sans en retirer aucun, et l'historique d'annulation de ce fond repart de zéro. Revenir à une version antérieure à 0.9 après avoir créé des calques peut faire perdre ces annotations.
+
+## Enregistrement vidéo
+
+Le bouton rond de la barre, ou « Enregistrer l'écran » dans le menu de l'icône près de l'horloge, filme l'écran où se trouve la barre, après un décompte de 3 secondes. La même commande annule le décompte, puis arrête l'enregistrement ; pendant ce temps, le bouton devient rouge et affiche la durée. Aucun raccourci n'est attribué par défaut ; il se choisit dans les réglages.
+
+- **Le cadre jaune :** Windows entoure l'écran filmé d'un cadre jaune tant que la capture dure. Il signale l'enregistrement et reste affiché ; il ne figure pas dans la vidéo.
+- **Ce qui apparaît dans la vidéo :** tout ce qui est à l'écran, avec les annotations, les tableaux, le curseur et les effets de présentation. La barre, le panneau des calques et le décompte n'y figurent pas. Les autres fenêtres de Legendary Pen, comme les réglages ou le choix d'une zone de capture, y figurent si on les ouvre pendant l'enregistrement. Les effets de présentation sont suspendus le temps d'une capture de zone. Au relâchement du surligneur, les annotations et les effets peuvent manquer sur une image, le temps d'analyser le texte situé dessous.
+- **Où vont les fichiers :** dans le dossier de capture choisi dans les réglages, en MP4 H.264 à 30 images par seconde, sous un nom comme `Legendary Pen 2026-11-03 21-10-05.mp4`. Une notification annonce la fin, et un clic dessus montre le fichier dans son dossier. La vidéo est sans son pour l'instant.
+- **Arrêts automatiques :** l'enregistrement s'arrête proprement et garde le fichier s'il reste moins de 500 Mo sur le disque, si l'écran filmé est débranché ou si sa résolution change. Quitter l'application ou lancer une mise à jour finit d'abord la vidéo, en 15 secondes au plus. Un arrêt forcé du processus laisse en revanche un fichier `.tmp` illisible.
+
+Rien n'est envoyé : la vidéo reste sur cet ordinateur ou dans le dossier choisi, et aucun droit administrateur n'est demandé.
 
 ## Signer un PDF
 
