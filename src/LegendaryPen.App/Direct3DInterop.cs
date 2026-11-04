@@ -198,6 +198,10 @@ internal sealed unsafe class Direct3DInterop : IDisposable
         }
     }
 
+    /// <summary>Zéro tant que le périphérique est valide. Windows le perd lors d'une réinitialisation du pilote.</summary>
+    public int DeviceRemovedReason() =>
+        ((delegate* unmanaged[Stdcall]<nint, int>)Slot(_device, 39))(_device);
+
     public void Dispose()
     {
         WinRtDevice.Dispose();

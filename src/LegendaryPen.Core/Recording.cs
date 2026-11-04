@@ -8,7 +8,7 @@ public enum RecordingStatus { Idle, Countdown, Recording, Finishing }
 public enum RecordingAudio { None, System, Microphone }
 
 /// <summary>Pourquoi un enregistrement s'est terminé.</summary>
-public enum RecordingEndReason { Requested, MonitorClosed, DiskFull, Failed }
+public enum RecordingEndReason { Requested, MonitorClosed, DiskFull, Failed, ScreenChanged }
 
 /// <summary>
 /// Cycle de vie d'un enregistrement : Idle, Countdown, Recording, Finishing, puis Idle.

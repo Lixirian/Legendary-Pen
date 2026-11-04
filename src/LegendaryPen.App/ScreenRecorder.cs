@@ -20,8 +20,10 @@ namespace LegendaryPen.App;
 /// et l'encodeur la copie au rythme d'une horloge, car Windows n'envoie une image que si l'écran change.
 ///
 /// Une instance ne sert qu'une fois. <see cref="StartAsync"/> ne lève que si l'enregistrement ne peut pas être tenté.
-/// Toute autre fin, y compris une erreur au démarrage, passe par <see cref="Ended"/>, levé une seule fois, sur n'importe
-/// quel fil : l'appelant le ramène sur son fil. À ce moment, les fichiers et l'encodeur sont terminés.
+/// Toute autre fin, y compris une erreur au démarrage, passe par <see cref="Ended"/>, levé une seule fois, sur une tâche à
+/// lui : l'appelant le ramène sur son fil. <see cref="StopAsync"/> se termine avant cet événement, et un fil d'interface
+/// qui l'attend ne peut donc pas se bloquer. À ce moment, les fichiers et l'encodeur sont terminés, sauf après un abandon :
+/// la capture est alors fermée, et l'encodeur finit seul. S'il rend encore un fichier lisible, celui-ci prend son nom final.
 /// </summary>
 internal sealed class ScreenRecorder : IAsyncDisposable
 {
@@ -36,6 +38,7 @@ internal sealed class ScreenRecorder : IAsyncDisposable
 
     private static readonly TimeSpan FirstFrameTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan FrameWaitTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan StartTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan CancelGrace = TimeSpan.FromSeconds(2);
 
@@ -53,23 +56,22 @@ internal sealed class ScreenRecorder : IAsyncDisposable
     private readonly TaskCompletionSource _running = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly ManualResetEventSlim _firstFrame = new(false);
-    private readonly Stopwatch _clock = new();
 
     private Direct3DInterop? _direct3D;
     private GraphicsCaptureItem? _item;
     private Direct3D11CaptureFramePool? _framePool;
     private GraphicsCaptureSession? _session;
     private Direct3D11CaptureFrame? _latest;
-    private FrameTextures? _textures;
-    private IAsyncActionWithProgress<double>? _transcode;
-    private Exception? _sampleFault;
+    private EncodingAttempt? _attempt;
+    private volatile IAsyncActionWithProgress<double>? _transcode;
+    private volatile string? _savedPath;
     private string _temporaryPath = "";
     private bool _temporaryCreated;
     private bool _captureClosed;
+    private bool _stoppingDisposed;
+    private SizeInt32 _contentSize;
     private int _width;
     private int _height;
-    private long _lastIndex;
-    private int _samples;
     private int _startCalled;
     private int _endRaised;
     private RecordingEndReason? _endRequest;
@@ -91,11 +93,18 @@ internal sealed class ScreenRecorder : IAsyncDisposable
         }
     }
 
-    /// <summary>Points d'essai du banc. Null en usage normal.</summary>
+    /// <summary>
+    /// Le fichier où se trouve la vidéo, fixé avant <see cref="Ended"/> ; null s'il n'y en a pas. C'est le « .tmp » si le nom
+    /// final est pris. Après un abandon, il peut encore passer de null au fichier final si l'encodeur finit plus tard.
+    /// </summary>
+    public string? SavedPath => _savedPath;
+
+    /// <summary>Points d'essai du banc. Tous inactifs en usage normal.</summary>
     internal RecorderProbes Probes { get; } = new();
 
     /// <summary>
-    /// Se termine quand l'encodeur demande sa première image, ou quand l'enregistrement a déjà pris fin.
+    /// Se termine quand l'encodeur demande sa première image, ou quand l'enregistrement a déjà pris fin : en 15 s au plus,
+    /// au-delà de quoi l'enregistrement a échoué.
     /// Le son n'existe pas encore : toute source est traitée comme <see cref="RecordingAudio.None"/>.
     /// </summary>
     public Task StartAsync(MonitorArea monitor, string path, RecordingAudio audio)
@@ -115,6 +124,7 @@ internal sealed class ScreenRecorder : IAsyncDisposable
 
         // Tout le travail se fait hors du fil de l'appelant : ni la capture ni l'encodeur ne touchent l'interface.
         _ = Task.Run(() => RunAsync(monitor, path));
+        _ = Task.Run(WatchStartAsync);
         return _running.Task;
     }
 
@@ -179,6 +189,7 @@ internal sealed class ScreenRecorder : IAsyncDisposable
         finally
         {
             End(reason);
+            DisposeSignals();
         }
     }
 
@@ -195,6 +206,7 @@ internal sealed class ScreenRecorder : IAsyncDisposable
         _item = Direct3DInterop.CreateItemForMonitor(handle);
         _item.Closed += OnItemClosed;
 
+        _contentSize = _item.Size;
         var size = Probes.CaptureSize ?? _item.Size;
         (_width, _height) = RecordingRules.EncodableSize(size.Width, size.Height);
 
@@ -229,7 +241,7 @@ internal sealed class ScreenRecorder : IAsyncDisposable
         {
             await EncodeAsync(hardware: true).ConfigureAwait(false);
         }
-        catch (Exception exception) when (Volatile.Read(ref _samples) < StartConfirmedSamples && !_stopping.IsCancellationRequested && !IsDiskFull(exception))
+        catch (Exception exception) when (CanRetry(exception))
         {
             // Une seule reprise, en logiciel : une nouvelle panne remonte et termine l'enregistrement.
             Debug.WriteLine(exception);
@@ -238,21 +250,29 @@ internal sealed class ScreenRecorder : IAsyncDisposable
         }
     }
 
+    private bool CanRetry(Exception exception) =>
+        !_stopping.IsCancellationRequested && !IsDiskFull(exception) && _attempt is not { DeviceLost: true } && (_attempt?.Samples ?? 0) < StartConfirmedSamples;
+
     private async Task EncodeAsync(bool hardware)
     {
-        _sampleFault = null;
-        _lastIndex = -1;
-        Volatile.Write(ref _samples, 0);
         Probes.UsedHardware = hardware;
         Probes.EncoderStarting?.Invoke(hardware);
 
-        using var textures = new FrameTextures(_direct3D!, _width, _height, Probes);
-        _textures = textures;
+        if (_stopping.IsCancellationRequested)
+        {
+            return;
+        }
+
+        var attempt = new EncodingAttempt(new FrameTextures(_direct3D!, _width, _height, Probes), _stopping.Token);
+        _attempt = attempt;
 
         try
         {
             using var output = await OpenTemporaryAsync().ConfigureAwait(false);
+            Probes.OutputOpened?.Invoke(output);
+            TypedEventHandler<MediaStreamSource, MediaStreamSourceSampleRequestedEventArgs> onSample = (_, args) => OnSampleRequested(attempt, args);
             var source = CreateSource();
+            source.SampleRequested += onSample;
             var transcoder = new MediaTranscoder { HardwareAccelerationEnabled = hardware };
             var prepared = await transcoder.PrepareMediaStreamSourceTranscodeAsync(source, output, CreateProfile(hardware));
 
@@ -261,29 +281,45 @@ internal sealed class ScreenRecorder : IAsyncDisposable
                 throw new InvalidOperationException("The encoder was refused: " + prepared.FailureReason);
             }
 
-            _transcode = prepared.TranscodeAsync();
+            var transcode = prepared.TranscodeAsync();
+            _transcode = transcode;
 
             try
             {
-                await _transcode;
+                await transcode;
             }
             finally
             {
                 _transcode = null;
-                source.SampleRequested -= OnSampleRequested;
+                source.SampleRequested -= onSample;
                 source.Starting -= OnSourceStarting;
+                CloseOperation(transcode);
             }
 
             await output.FlushAsync();
+            Probes.AfterEncoding?.Invoke();
 
-            if (_sampleFault is { } fault)
+            if (attempt.Fault is { } fault)
             {
                 throw new InvalidOperationException("A frame could not be sent to the encoder.", fault);
             }
         }
         finally
         {
-            _textures = null;
+            // Une demande d'image peut survivre à la fin de l'encodeur : elle ne doit plus rien toucher une fois l'essai fermé.
+            attempt.Close();
+        }
+    }
+
+    private static void CloseOperation(IAsyncInfo operation)
+    {
+        try
+        {
+            operation.Close();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(exception);
         }
     }
 
@@ -302,7 +338,6 @@ internal sealed class ScreenRecorder : IAsyncDisposable
         var properties = VideoEncodingProperties.CreateUncompressed(MediaEncodingSubtypes.Bgra8, (uint)_width, (uint)_height);
         var source = new MediaStreamSource(new VideoStreamDescriptor(properties)) { BufferTime = TimeSpan.Zero };
         source.Starting += OnSourceStarting;
-        source.SampleRequested += OnSampleRequested;
         return source;
     }
 
@@ -336,40 +371,62 @@ internal sealed class ScreenRecorder : IAsyncDisposable
     private void OnSourceStarting(MediaStreamSource sender, MediaStreamSourceStartingEventArgs args) =>
         args.Request.SetActualStartPosition(TimeSpan.Zero);
 
-    private void OnSampleRequested(MediaStreamSource sender, MediaStreamSourceSampleRequestedEventArgs args)
+    private void OnSampleRequested(EncodingAttempt attempt, MediaStreamSourceSampleRequestedEventArgs args)
     {
+        if (!attempt.TryEnter())
+        {
+            return;
+        }
+
         try
         {
-            args.Request.Sample = NextVideoSample();
+            args.Request.Sample = NextVideoSample(attempt);
         }
         catch (Exception exception)
         {
             // La vidéo se clôt normalement, sans signaler d'erreur à l'encodeur : ce qui est déjà écrit reste lisible.
             Debug.WriteLine(exception);
-            _sampleFault = exception;
+            attempt.Fault ??= exception;
+            EndVideo(args);
+        }
+        finally
+        {
+            attempt.Leave();
+        }
+    }
+
+    private static void EndVideo(MediaStreamSourceSampleRequestedEventArgs args)
+    {
+        try
+        {
             args.Request.Sample = null;
+        }
+        catch (Exception exception)
+        {
+            // La demande est morte avec son encodeur : il n'y a plus personne à prévenir.
+            Debug.WriteLine(exception);
         }
     }
 
     /// <summary>Renvoie null pour clore la vidéo. Bloque le fil de l'encodeur jusqu'à l'heure de l'image.</summary>
-    private MediaStreamSample? NextVideoSample()
+    private MediaStreamSample? NextVideoSample(EncodingAttempt attempt)
     {
-        Probes.BeforeSample?.Invoke(_lastIndex + 1);
-        var isFirst = _lastIndex < 0;
+        Probes.BeforeSample?.Invoke(attempt.LastIndex + 1);
+        var isFirst = attempt.LastIndex < 0;
 
         if (isFirst)
         {
             // L'heure zéro est la demande de la première image : la vidéo commence sans le temps de préparation de l'encodeur.
-            _clock.Restart();
+            attempt.Clock.Restart();
             _running.TrySetResult();
         }
 
-        var stop = _stopping.Token;
-        var dueTicks = (_lastIndex + 1) * TicksPerFrame;
+        var stop = attempt.Stop;
+        var dueTicks = (attempt.LastIndex + 1) * TicksPerFrame;
 
         while (!stop.IsCancellationRequested)
         {
-            var remaining = dueTicks - _clock.Elapsed.Ticks;
+            var remaining = dueTicks - attempt.Clock.Elapsed.Ticks;
 
             if (remaining <= 0)
             {
@@ -385,39 +442,65 @@ internal sealed class ScreenRecorder : IAsyncDisposable
             return null;
         }
 
-        var index = _clock.Elapsed.Ticks / TicksPerFrame;
-        var textures = _textures!;
-        var texture = isFirst ? textures.Take(CancellationToken.None, FrameWaitTimeout) : textures.Take(stop, FrameWaitTimeout);
+        var textures = attempt.Textures;
 
-        if (texture is null)
+        if (!textures.WaitForFree(isFirst ? CancellationToken.None : stop, FrameWaitTimeout))
         {
             return null;
         }
 
-        CopyLatestTo(texture.Texture);
+        var index = attempt.Clock.Elapsed.Ticks / TicksPerFrame;
+        MediaStreamSample sample;
 
-        var sample = MediaStreamSample.CreateFromDirect3D11Surface(texture.Surface, TimeSpan.FromTicks(index * TicksPerFrame));
-        sample.Duration = TimeSpan.FromTicks(TicksPerFrame);
+        // Rien de natif hors de ce verrou : la fermeture de l'essai l'attend avant de libérer les textures.
+        lock (attempt.Gate)
+        {
+            if (attempt.IsClosed)
+            {
+                return null;
+            }
 
-        // Cet événement rend la texture : le nombre de textures en attente de l'encodeur reste borné.
-        // L'échantillon reste référencé jusque-là : si le ramasse-miettes collecte son enveloppe, l'événement est perdu.
-        texture.Sample = sample;
-        sample.Processed += (_, _) => textures.Return(texture);
+            var texture = textures.TakeFree();
 
-        Probes.FramesSkipped += (int)(index - _lastIndex - 1);
-        _lastIndex = index;
-        Interlocked.Increment(ref _samples);
+            if (!CopyLatestTo(texture.Texture))
+            {
+                return null;
+            }
+
+            var removed = Probes.DeviceRemovedReason?.Invoke(attempt.Samples) ?? _direct3D!.DeviceRemovedReason();
+
+            if (removed != 0)
+            {
+                // Sans échantillon, un encodeur encore vivant écrit son index : la vidéo jusque-là reste lisible.
+                attempt.DeviceLost = true;
+                attempt.Fault ??= new InvalidOperationException("The graphics device was removed: 0x" + removed.ToString("X8"));
+                return null;
+            }
+
+            sample = MediaStreamSample.CreateFromDirect3D11Surface(texture.Surface, TimeSpan.FromTicks(index * TicksPerFrame));
+            sample.Duration = TimeSpan.FromTicks(TicksPerFrame);
+
+            // Cet événement rend la texture : le nombre de textures en attente de l'encodeur reste borné.
+            // L'échantillon reste référencé jusque-là : si le ramasse-miettes collecte son enveloppe, l'événement est perdu.
+            texture.Sample = sample;
+            sample.Processed += (_, _) => textures.Return(texture);
+        }
+
+        Probes.FramesSkipped += (int)(index - attempt.LastIndex - 1);
+        attempt.LastIndex = index;
+        attempt.Samples++;
         Probes.Samples++;
         return sample;
     }
 
-    private void CopyLatestTo(nint destination)
+    /// <summary>Faux si la capture est déjà fermée : il n'y a plus d'image à copier.</summary>
+    private bool CopyLatestTo(nint destination)
     {
         lock (_frameGate)
         {
             if (_latest is null)
             {
-                return;
+                return false;
             }
 
             var source = Direct3DInterop.TextureOf(_latest.Surface);
@@ -425,6 +508,7 @@ internal sealed class ScreenRecorder : IAsyncDisposable
             try
             {
                 _direct3D!.CopyTopLeft(destination, source, _width, _height);
+                return true;
             }
             finally
             {
@@ -437,6 +521,8 @@ internal sealed class ScreenRecorder : IAsyncDisposable
     {
         try
         {
+            var changed = false;
+
             lock (_frameGate)
             {
                 // Une image peut encore arriver pendant la fermeture : le verrou évite de la garder après la fin.
@@ -452,8 +538,25 @@ internal sealed class ScreenRecorder : IAsyncDisposable
                     return;
                 }
 
-                _latest?.Dispose();
-                _latest = frame;
+                var size = Probes.ContentSize?.Invoke(frame.ContentSize) ?? frame.ContentSize;
+
+                if (size.Width != _contentSize.Width || size.Height != _contentSize.Height)
+                {
+                    // Cette image ne tient plus dans la vidéo : la dernière bonne reste en place jusqu'à la fin.
+                    changed = true;
+                    frame.Dispose();
+                }
+                else
+                {
+                    _latest?.Dispose();
+                    _latest = frame;
+                }
+            }
+
+            if (changed)
+            {
+                RequestEnd(RecordingEndReason.ScreenChanged);
+                return;
             }
 
             Probes.FramesArrived++;
@@ -480,7 +583,7 @@ internal sealed class ScreenRecorder : IAsyncDisposable
             _endRequest = reason;
         }
 
-        _stopping.Cancel();
+        CancelStopping();
         _ = Task.Run(WatchEndAsync);
     }
 
@@ -493,64 +596,96 @@ internal sealed class ScreenRecorder : IAsyncDisposable
         }
 
         Debug.WriteLine("The encoder did not stop in time.");
+        CancelTranscode();
 
+        if (await Task.WhenAny(_finished.Task, Task.Delay(CancelGrace)).ConfigureAwait(false) != _finished.Task)
+        {
+            CloseCapture();
+            End(RecordingEndReason.Failed);
+        }
+    }
+
+    private async Task WatchStartAsync()
+    {
+        if (await Task.WhenAny(_running.Task, Task.Delay(StartTimeout)).ConfigureAwait(false) == _running.Task)
+        {
+            return;
+        }
+
+        Debug.WriteLine("The recording did not start in time.");
+        CancelTranscode();
+        CloseCapture();
+        End(RecordingEndReason.Failed);
+    }
+
+    private void CancelTranscode()
+    {
         try
         {
             _transcode?.Cancel();
         }
         catch (Exception exception)
         {
+            // L'opération vient peut-être de se terminer d'elle-même.
             Debug.WriteLine(exception);
-        }
-
-        if (await Task.WhenAny(_finished.Task, Task.Delay(CancelGrace)).ConfigureAwait(false) != _finished.Task)
-        {
-            End(RecordingEndReason.Failed);
         }
     }
 
-    private void CloseEverything()
+    /// <summary>
+    /// Ferme la capture : plus d'image, plus de cadre jaune. Sans effet la seconde fois, sauf sur ce qu'un démarrage encore
+    /// en cours aurait ouvert entre-temps. Le périphérique reste : seule la fin de l'encodeur le libère.
+    /// </summary>
+    private void CloseCapture()
     {
-        Try(() =>
-        {
-            if (_item is not null)
-            {
-                _item.Closed -= OnItemClosed;
-            }
-        });
-        Try(() =>
-        {
-            if (_framePool is not null)
-            {
-                _framePool.FrameArrived -= OnFrameArrived;
-            }
-        });
+        GraphicsCaptureItem? item;
+        Direct3D11CaptureFramePool? framePool;
+        GraphicsCaptureSession? session;
+
         lock (_frameGate)
         {
             _captureClosed = true;
             Try(() => _latest?.Dispose());
             _latest = null;
+            (item, _item) = (_item, null);
+            (framePool, _framePool) = (_framePool, null);
+            (session, _session) = (_session, null);
         }
 
-        Try(() => _session?.Dispose());
-        Try(() => _framePool?.Dispose());
-
-        Try(() => _direct3D?.Dispose());
-        _session = null;
-        _framePool = null;
-        _item = null;
-        _direct3D = null;
-
-        static void Try(Action action)
+        Try(() =>
         {
-            try
+            if (item is not null)
             {
-                action();
+                item.Closed -= OnItemClosed;
             }
-            catch (Exception exception)
+        });
+        Try(() =>
+        {
+            if (framePool is not null)
             {
-                Debug.WriteLine(exception);
+                framePool.FrameArrived -= OnFrameArrived;
             }
+        });
+        Try(() => session?.Dispose());
+        Try(() => framePool?.Dispose());
+    }
+
+    private void CloseEverything()
+    {
+        CloseCapture();
+        Try(() => _direct3D?.Dispose());
+        _direct3D = null;
+        _attempt = null;
+    }
+
+    private static void Try(Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(exception);
         }
     }
 
@@ -584,9 +719,20 @@ internal sealed class ScreenRecorder : IAsyncDisposable
             return false;
         }
 
-        // Le fichier reste en .tmp si son nom final est pris : une vidéo lisible n'est jamais perdue.
-        File.Move(_temporaryPath, path, overwrite: false);
+        try
+        {
+            File.Move(_temporaryPath, path, overwrite: false);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Le fichier reste en .tmp si son nom final est pris : une vidéo lisible n'est jamais perdue.
+            Debug.WriteLine(exception);
+            _savedPath = _temporaryPath;
+            return false;
+        }
+
         _temporaryCreated = false;
+        _savedPath = Path.GetFullPath(path);
         return true;
     }
 
@@ -635,22 +781,121 @@ internal sealed class ScreenRecorder : IAsyncDisposable
             _endRequest ??= reason;
         }
 
-        _stopping.Cancel();
+        CancelStopping();
+        _running.TrySetResult();
+        _finished.TrySetResult();
 
-        try
+        // Sur sa propre tâche, après la fin de l'attente : un abonné lent ou bloqué ne retient ni StopAsync ni la fermeture.
+        _ = Task.Run(() =>
         {
-            Ended?.Invoke(reason);
-        }
-        catch (Exception exception)
+            try
+            {
+                Ended?.Invoke(reason);
+            }
+            catch (Exception exception)
+            {
+                // Une erreur de l'abonné ne doit pas fermer l'application depuis un fil de fond.
+                Debug.WriteLine(exception);
+            }
+        });
+    }
+
+    private void CancelStopping()
+    {
+        lock (_endGate)
         {
-            // Une erreur de l'abonné ne doit ni laisser l'appelant attendre, ni fermer l'application depuis un fil de fond.
-            Debug.WriteLine(exception);
+            if (!_stoppingDisposed)
+            {
+                _stopping.Cancel();
+            }
         }
-        finally
+    }
+
+    private void DisposeSignals()
+    {
+        lock (_endGate)
         {
-            _running.TrySetResult();
-            _finished.TrySetResult();
+            _stoppingDisposed = true;
+            _stopping.Dispose();
         }
+
+        _firstFrame.Dispose();
+    }
+}
+
+/// <summary>
+/// Un essai d'encodage et tout ce que ses demandes d'image touchent. Une demande peut survivre à son essai : elle écrit ici
+/// et jamais dans l'essai suivant, et ne touche plus aux textures une fois l'essai fermé.
+/// </summary>
+internal sealed class EncodingAttempt
+{
+    private readonly CancellationTokenSource _closing;
+    private int _users = 1;
+
+    public EncodingAttempt(FrameTextures textures, CancellationToken stopping)
+    {
+        Textures = textures;
+        _closing = CancellationTokenSource.CreateLinkedTokenSource(stopping);
+        Stop = _closing.Token;
+    }
+
+    public object Gate { get; } = new();
+
+    public FrameTextures Textures { get; }
+
+    public Stopwatch Clock { get; } = new();
+
+    /// <summary>L'arrêt de l'enregistrement ou la fermeture de l'essai : aucune attente ne survit à l'un ou à l'autre.</summary>
+    public CancellationToken Stop { get; }
+
+    public long LastIndex { get; set; } = -1;
+
+    public int Samples { get; set; }
+
+    public Exception? Fault { get; set; }
+
+    public bool DeviceLost { get; set; }
+
+    public bool IsClosed { get; private set; }
+
+    public bool TryEnter()
+    {
+        lock (Gate)
+        {
+            if (IsClosed)
+            {
+                return false;
+            }
+
+            _users++;
+            return true;
+        }
+    }
+
+    public void Leave()
+    {
+        lock (Gate)
+        {
+            if (--_users > 0)
+            {
+                return;
+            }
+        }
+
+        _closing.Dispose();
+        Textures.Dispose();
+    }
+
+    public void Close()
+    {
+        lock (Gate)
+        {
+            IsClosed = true;
+        }
+
+        _closing.Cancel();
+        Textures.ReleaseAll();
+        Leave();
     }
 }
 
@@ -684,8 +929,8 @@ internal sealed class FrameTextures : IDisposable
         _available = new SemaphoreSlim(Capacity, Capacity);
     }
 
-    /// <summary>Renvoie null à l'arrêt. Lève si l'encodeur garde tout trop longtemps : il est bloqué.</summary>
-    public FrameTexture? Take(CancellationToken stop, TimeSpan timeout)
+    /// <summary>Attend une place. Faux à l'arrêt. Lève si l'encodeur garde tout trop longtemps : il est bloqué.</summary>
+    public bool WaitForFree(CancellationToken stop, TimeSpan timeout)
     {
         try
         {
@@ -696,9 +941,15 @@ internal sealed class FrameTextures : IDisposable
         }
         catch (OperationCanceledException)
         {
-            return null;
+            return false;
         }
 
+        return true;
+    }
+
+    /// <summary>Prend la texture de la place obtenue par <see cref="WaitForFree"/>.</summary>
+    public FrameTexture TakeFree()
+    {
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -734,7 +985,8 @@ internal sealed class FrameTextures : IDisposable
         }
     }
 
-    public void Dispose()
+    /// <summary>Libère les textures, y compris celles qu'un encodeur mort ne rendra jamais.</summary>
+    public void ReleaseAll()
     {
         lock (_gate)
         {
@@ -748,7 +1000,12 @@ internal sealed class FrameTextures : IDisposable
             _all.Clear();
             _free.Clear();
         }
+    }
 
+    /// <summary>Appelé quand plus aucune demande d'image n'attend une place.</summary>
+    public void Dispose()
+    {
+        ReleaseAll();
         _available.Dispose();
     }
 }
@@ -771,6 +1028,8 @@ internal sealed class FrameTexture : IDisposable
 
     public void Dispose()
     {
+        // Un échantillon jamais traité et sa texture se retiennent l'un l'autre, avec le périphérique : ce lien doit tomber ici.
+        Sample = null;
         Surface.Dispose();
         Direct3DInterop.Release(Texture);
     }
@@ -787,6 +1046,18 @@ internal sealed class RecorderProbes
 
     /// <summary>Taille de capture imposée, pour essayer un écran de taille impaire sans toucher aux réglages.</summary>
     public SizeInt32? CaptureSize { get; set; }
+
+    /// <summary>Remplace la taille lue sur chaque image, pour simuler un changement de résolution.</summary>
+    public Func<SizeInt32, SizeInt32>? ContentSize { get; set; }
+
+    /// <summary>Remplace la lecture de l'état du périphérique, selon le nombre d'images écrites, pour simuler sa perte.</summary>
+    public Func<int, int>? DeviceRemovedReason { get; set; }
+
+    /// <summary>Donne le flux de sortie, pour simuler sa perte en cours d'enregistrement.</summary>
+    public Action<IRandomAccessStream>? OutputOpened { get; set; }
+
+    /// <summary>Appelé quand l'encodeur a fini. Une attente simule une fin qui traîne au-delà de la limite.</summary>
+    public Action? AfterEncoding { get; set; }
 
     public bool UsedHardware { get; set; }
 

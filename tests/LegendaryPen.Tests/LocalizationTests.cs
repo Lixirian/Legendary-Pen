@@ -46,6 +46,8 @@ public sealed partial class LocalizationTests : IDisposable
         "A frame could not be sent to the encoder.",
         "The encoder did not stop in time.",
         "The encoder keeps every frame.",
+        "The graphics device was removed: 0x",
+        "The recording did not start in time.",
     ];
 
     public void Dispose() => Loc.Use(AppLanguage.French, "fr");
