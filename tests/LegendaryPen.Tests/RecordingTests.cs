@@ -328,4 +328,72 @@ public class RecordingTests
             Directory.Delete(Path.GetDirectoryName(path)!, recursive: true);
         }
     }
+
+    [Fact]
+    public void Nothing_is_refused_or_silenced_at_first()
+    {
+        var latch = new RecordingCloseLatch();
+
+        Assert.False(latch.RefusesStart);
+        Assert.False(latch.IsQuiet);
+    }
+
+    [Fact]
+    public void An_update_refuses_a_start_but_keeps_the_message_and_reopens_if_abandoned()
+    {
+        var latch = new RecordingCloseLatch();
+
+        latch.Enter(RecordingClose.Update);
+        Assert.True(latch.RefusesStart);
+        Assert.False(latch.IsQuiet);
+
+        latch.Leave(RecordingClose.Update);
+        Assert.False(latch.RefusesStart);
+    }
+
+    [Fact]
+    public void A_cancelled_logoff_reopens_recording_and_the_messages()
+    {
+        var latch = new RecordingCloseLatch();
+
+        latch.Enter(RecordingClose.SessionEnd);
+        Assert.True(latch.RefusesStart);
+        Assert.True(latch.IsQuiet);
+
+        latch.Leave(RecordingClose.SessionEnd);
+        Assert.False(latch.RefusesStart);
+        Assert.False(latch.IsQuiet);
+    }
+
+    [Theory]
+    [InlineData(RecordingClose.Update)]
+    [InlineData(RecordingClose.SessionEnd)]
+    public void An_exit_stays_closed_whatever_is_abandoned_meanwhile(RecordingClose other)
+    {
+        var latch = new RecordingCloseLatch();
+
+        latch.Enter(other);
+        latch.Enter(RecordingClose.Exit);
+        latch.Leave(other);
+
+        Assert.True(latch.RefusesStart);
+        Assert.True(latch.IsQuiet);
+    }
+
+    [Fact]
+    public void An_abandoned_update_does_not_reopen_during_a_session_end_nor_the_reverse()
+    {
+        var latch = new RecordingCloseLatch();
+
+        latch.Enter(RecordingClose.Update);
+        latch.Enter(RecordingClose.SessionEnd);
+
+        latch.Leave(RecordingClose.Update);
+        Assert.True(latch.RefusesStart);
+
+        latch.Enter(RecordingClose.Update);
+        latch.Leave(RecordingClose.SessionEnd);
+        Assert.True(latch.RefusesStart);
+        Assert.False(latch.IsQuiet);
+    }
 }

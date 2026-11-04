@@ -13,6 +13,7 @@ internal static partial class Win32
 {
     public const int WmActivate = 0x0006;
     public const int WmQueryEndSession = 0x0011;
+    public const int WmEndSession = 0x0016;
     public const int WmWindowPosChanging = 0x0046;
     public const int WmHotKey = 0x0312;
     public const int WmDpiChanged = 0x02E0;

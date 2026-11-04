@@ -35,11 +35,8 @@ internal sealed class RecordingController
 
     private Run? _run;
 
-    // À la fermeture, l'icône de notification n'existe plus : plus aucun message.
-    private bool _quiet;
-
-    // L'application se ferme ou va s'installer : une commande encore en file ne doit pas relancer une vidéo.
-    private bool _closing;
+    // Une commande encore en file ne doit pas relancer une vidéo dans une application qui se ferme.
+    private readonly RecordingCloseLatch _close = new();
 
     /// <param name="recordedMonitor">L'écran à enregistrer, lu au moment de la commande.</param>
     /// <param name="excludeFromCapture">Retire la barre et son panneau des captures ; faux si Windows refuse. À équilibrer par <paramref name="restoreCapture"/>, même après un refus.</param>
@@ -126,16 +123,16 @@ internal sealed class RecordingController
     }
 
     /// <summary>
-    /// Arrête ce qui tourne et attend le fichier final, 15 s au plus. Plus rien ne démarre ensuite, sauf après <see cref="ReopenAfterAbandonedUpdate"/>.
+    /// Arrête ce qui tourne et attend le fichier final, 15 s au plus. Plus rien ne démarre ensuite, sauf après <see cref="Reopen"/>.
+    /// Peut être appelé plusieurs fois : chaque appel attend le même arrêt.
     /// </summary>
-    /// <param name="quiet">
-    /// Fermeture de l'application : aucun message, et aucune dépendance à <see cref="ScreenRecorder.Ended"/>, qui passe par le fil de l'interface.
-    /// Sinon, le message de fin part comme d'habitude : une mise à jour peut encore échouer ou être annulée.
+    /// <param name="reason">
+    /// Fin de session ou sortie : aucun message, et aucune dépendance à <see cref="ScreenRecorder.Ended"/>, qui passe par le fil de l'interface.
+    /// Mise à jour : le message de fin part comme d'habitude, car elle peut encore échouer ou être annulée.
     /// </param>
-    public async Task StopAndWaitAsync(bool quiet = false)
+    public async Task StopAndWaitAsync(RecordingClose reason = RecordingClose.Update)
     {
-        _closing = true;
-        _quiet |= quiet;
+        _close.Enter(reason);
 
         if (_run is not { } run)
         {
@@ -162,24 +159,20 @@ internal sealed class RecordingController
         }
 
         // Ended donne la vraie raison, juste après la fin de l'arrêt. S'il ne vient pas, l'échec est la seule réponse honnête.
-        if (!_quiet && stopped)
+        if (!_close.IsQuiet && stopped)
         {
             await Task.WhenAny(run.Finished.Task, Task.Delay(EndedGrace)).ConfigureAwait(false);
         }
 
-        await _dispatcher.InvokeAsync(() => FinishRun(run, _quiet ? null : run.ForcedReason ?? RecordingEndReason.Failed));
+        await _dispatcher.InvokeAsync(() => FinishRun(run, _close.IsQuiet ? null : run.ForcedReason ?? RecordingEndReason.Failed));
     }
 
-    /// <summary>La mise à jour est annulée ou n'a pas démarré : l'application continue, on peut de nouveau enregistrer.</summary>
-    public void ReopenAfterAbandonedUpdate()
-    {
-        // Si l'application se ferme entre-temps, le verrou reste.
-        _closing = _quiet;
-    }
+    /// <summary>La mise à jour ou la fin de session n'aura pas lieu : l'application continue, et on peut de nouveau enregistrer, sauf si autre chose la ferme.</summary>
+    public void Reopen(RecordingClose reason) => _close.Leave(reason);
 
     private async Task BeginAsync()
     {
-        if (_closing)
+        if (_close.RefusesStart)
         {
             return;
         }
@@ -389,7 +382,7 @@ internal sealed class RecordingController
         {
             CloseCountdown(run);
 
-            if (reason is { } ended && !_quiet)
+            if (reason is { } ended && !_close.IsQuiet)
             {
                 NotifyEnd(run, ended);
             }
@@ -434,7 +427,7 @@ internal sealed class RecordingController
     {
         await Task.Delay(LateFileCheck);
 
-        if (!_quiet && recorder.SavedPath is { } path && FormatEnd(RecordingEndReason.Failed, path) is { } message)
+        if (!_close.IsQuiet && recorder.SavedPath is { } path && FormatEnd(RecordingEndReason.Failed, path) is { } message)
         {
             _notify(message, ShowFile(path));
         }

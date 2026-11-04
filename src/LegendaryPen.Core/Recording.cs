@@ -93,6 +93,27 @@ public sealed class CaptureExclusionCount
     }
 }
 
+/// <summary>Ce qui ferme l'application, ou peut la fermer, pendant un enregistrement.</summary>
+public enum RecordingClose { Update, SessionEnd, Exit }
+
+/// <summary>
+/// Dit si un enregistrement peut encore démarrer et si les messages de fin ont encore un sens. Une mise à jour ou une fin de session
+/// peuvent être abandonnées et rendre la main ; chacune ne lève que sa propre demande, et rien ne rouvre après une vraie sortie.
+/// </summary>
+public sealed class RecordingCloseLatch
+{
+    private readonly HashSet<RecordingClose> _reasons = [];
+
+    public bool RefusesStart => _reasons.Count > 0;
+
+    /// <summary>Une mise à jour garde les messages : elle peut encore échouer, et l'icône de notification reste.</summary>
+    public bool IsQuiet => _reasons.Contains(RecordingClose.SessionEnd) || _reasons.Contains(RecordingClose.Exit);
+
+    public void Enter(RecordingClose reason) => _reasons.Add(reason);
+
+    public void Leave(RecordingClose reason) => _reasons.Remove(reason);
+}
+
 public static class RecordingRules
 {
     /// <summary>Espace libre minimal pour continuer à enregistrer : 500 Mo.</summary>

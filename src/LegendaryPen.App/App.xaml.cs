@@ -27,7 +27,6 @@ public partial class App : Application
     private PresentationManager? _presenter;
     private readonly RecordingState _recordingState = new();
     private RecordingController? _recording;
-    private Task? _recordingStop;
     private bool _sessionEndHandled;
     private bool _annotationsSavedOnClose;
     private ToolbarWindow? _toolbar;
@@ -151,8 +150,9 @@ public partial class App : Application
         _recording.DisplayChanged += ShowRecording;
         _toolbar.RecordRequested += RequestRecord;
         _toolbar.BeforeUpdateInstall = () => _recording.StopAndWaitAsync();
-        _toolbar.UpdateAbandoned = _recording.ReopenAfterAbandonedUpdate;
+        _toolbar.UpdateAbandoned = () => _recording.Reopen(RecordingClose.Update);
         _toolbar.SessionEndRequested += FinishBeforeSessionEnd;
+        _toolbar.SessionEndCancelled += OnSessionEndCancelled;
         ShowRecording();
 
         _tray = new TrayIcon(_toolbar.ToggleBarVisibility, RequestCapture, RequestRecord, RecordMenuState, RequestSignPdf, _presentation, RequestSettings, Shutdown);
@@ -195,7 +195,7 @@ public partial class App : Application
         SaveOnClose();
 
         // Après les annotations et les réglages : la vidéo peut demander jusqu'à 15 s.
-        var recording = StopRecordingForClose();
+        var recording = _recording?.StopAndWaitAsync(RecordingClose.Exit) ?? Task.CompletedTask;
 
         // Son arrêt peut attendre une seconde le fil de la loupe, l'enregistrement passe avant. La vidéo se finit pendant ce temps.
         _presenter?.Dispose();
@@ -223,17 +223,19 @@ public partial class App : Application
     // Windows prévient chaque fenêtre de premier niveau : la barre et la fenêtre cachée de WPF passent toutes deux par ici.
     private void FinishBeforeSessionEnd()
     {
-        var recording = StopRecordingForClose();
-
         // Déjà en cours plus haut dans la pile, ou déjà fait : cette réponse-ci attend seulement la même vidéo.
         if (_sessionEndHandled)
         {
-            WaitForRecording(recording);
+            WaitForRecording(_recording!.StopAndWaitAsync(RecordingClose.SessionEnd));
             return;
         }
 
         _sessionEndHandled = true;
 
+        // D'abord : si Windows tue le processus pendant une longue attente, seule la fin de la vidéo est perdue.
+        SaveOnClose();
+
+        var recording = _recording!.StopAndWaitAsync(RecordingClose.SessionEnd);
         var toolbar = new System.Windows.Interop.WindowInteropHelper(_toolbar!).Handle;
         var blocked = !recording.IsCompleted && Win32.BlockShutdown(toolbar, Loc.T("Finalisation de la vidéo"));
 
@@ -248,11 +250,16 @@ public partial class App : Application
                 Win32.AllowShutdown(toolbar);
             }
         }
-
-        SaveOnClose();
     }
 
-    private Task StopRecordingForClose() => _recordingStop ??= _recording?.StopAndWaitAsync(quiet: true) ?? Task.CompletedTask;
+    // Une autre application a refusé la fin de session : celle-ci continue, et une prochaine fin de session repartira de zéro.
+    private void OnSessionEndCancelled()
+    {
+        _sessionEndHandled = false;
+        _annotationsSavedOnClose = false;
+        Win32.AllowShutdown(new System.Windows.Interop.WindowInteropHelper(_toolbar!).Handle);
+        _recording!.Reopen(RecordingClose.SessionEnd);
+    }
 
     // Peut tourner deux fois, à la fin de session puis dans OnExit : une fois enregistrées, les annotations ne sont pas réécrites si près de la coupure.
     private void SaveOnClose()

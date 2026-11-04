@@ -156,6 +156,9 @@ public partial class ToolbarWindow : Window
     /// <summary>Windows demande à fermer : à traiter avant de répondre, le processus peut être tué juste après.</summary>
     public event Action? SessionEndRequested;
 
+    /// <summary>La fin de session annoncée n'aura pas lieu.</summary>
+    public event Action? SessionEndCancelled;
+
     /// <summary>Fenêtre sous laquelle les overlays se tiennent : le panneau des calques quand il est ouvert, sinon la barre.</summary>
     public event Action<IntPtr>? OverlayAnchorChanged;
 
@@ -1004,6 +1007,12 @@ public partial class ToolbarWindow : Window
         if (message == Win32.WmQueryEndSession)
         {
             SessionEndRequested?.Invoke();
+            return IntPtr.Zero;
+        }
+
+        if (message == Win32.WmEndSession && wParam == IntPtr.Zero)
+        {
+            SessionEndCancelled?.Invoke();
             return IntPtr.Zero;
         }
 
