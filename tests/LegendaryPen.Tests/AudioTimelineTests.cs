@@ -226,6 +226,39 @@ public class AudioTimelineTests
     }
 
     [Fact]
+    public void Numbered_sound_crosses_the_end_of_the_ring_unchanged_with_a_read_split_across_it()
+    {
+        var timeline = new AudioTimeline();
+        var half = Chunk / 2;
+
+        // Le surplus d'un demi-morceau décale la lecture : elle ne tombe plus sur la limite de l'anneau.
+        timeline.FillSilenceTo(AudioTimeline.CapacityFrames + half);
+        ReadAll(timeline);
+
+        // Un demi-morceau avant la limite des 10 s, au second tour.
+        var start = (2L * AudioTimeline.CapacityFrames) - half;
+        timeline.FillSilenceTo(start);
+        ReadAll(timeline);
+
+        timeline.Place(Numbered(1, 3 * Chunk), start);
+        var chunks = ReadAll(timeline);
+
+        Assert.Equal(3, chunks.Count);
+        Assert.Equal(start, chunks[0].Start);
+        Assert.Equal(Chunk * BytesPerFrame, chunks[0].Pcm.Length);
+
+        var number = 1;
+
+        foreach (var (pcm, _) in chunks)
+        {
+            for (var frame = 0; frame < Chunk; frame++)
+            {
+                Assert.Equal(number++, Number(pcm, frame));
+            }
+        }
+    }
+
+    [Fact]
     public void A_packet_without_a_reliable_time_follows_the_previous_one_while_the_clock_agrees()
     {
         var timeline = new AudioTimeline();

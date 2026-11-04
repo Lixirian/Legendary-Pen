@@ -184,6 +184,14 @@ public sealed partial class LocalizationTests : IDisposable
     }
 
     [Fact]
+    public void Every_developer_message_is_still_in_the_code()
+    {
+        var code = string.Concat(Directory.EnumerateFiles(SourceFolder, "*.cs", SearchOption.AllDirectories).Where(IsSource).Select(File.ReadAllText));
+
+        Assert.DoesNotContain(DeveloperMessages, message => !code.Contains(message, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Every_text_of_the_code_is_translated()
     {
         var missing = new List<string>();

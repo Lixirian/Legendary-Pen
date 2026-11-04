@@ -101,15 +101,7 @@ public class ShapeRecognizerTests
     [Fact]
     public void A_handwritten_word_is_not_a_shape()
     {
-        var points = new List<InkPoint>();
-
-        for (var i = 0; i < PointCount; i++)
-        {
-            var t = i / (double)(PointCount - 1);
-            points.Add(new InkPoint(100 + (400 * t), 200 + (30 * Math.Sin(2 * Math.PI * 5 * t))));
-        }
-
-        Assert.Null(ShapeRecognizer.Recognize(points));
+        Assert.Null(ShapeRecognizer.Recognize(Wave(30)));
     }
 
     [Fact]
@@ -321,6 +313,7 @@ public class ShapeRecognizerTests
     }
 
     [Theory]
+    [InlineData(0.95)]
     [InlineData(0.97)]
     [InlineData(1.06)]
     public void A_sharp_rectangle_with_an_imperfect_closure_is_a_rectangle(double closure)

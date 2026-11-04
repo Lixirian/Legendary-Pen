@@ -123,7 +123,6 @@ public static class Translations
         ["Retrouver les annotations à la réouverture"] = "Restore annotations when reopening",
         ["Elles restent sur cet ordinateur, sans chiffrement. Désactiver cette option les supprime."] = "They stay on this computer, unencrypted. Turning this option off deletes them.",
         ["Encre évanescente"] = "Fading ink",
-        ["Encre évanescente (F)"] = "Fading ink (F)",
         ["Délai avant la disparition :"] = "Delay before fading:",
         ["Délai avant la disparition"] = "Delay before fading",
         ["Durée du fondu :"] = "Fade duration:",
@@ -175,6 +174,7 @@ public static class Translations
         ["Maj : carré"] = "Shift: square",
         ["Maj : cercle"] = "Shift: circle",
         ["Échap ou clic ailleurs : valider"] = "Esc or click elsewhere: confirm",
+        ["Encre évanescente (F)"] = "Fading ink (F)",
         ["Tableau blanc (W)"] = "Whiteboard (W)",
         ["Tableau blanc"] = "Whiteboard",
         ["Tableau noir (B)"] = "Blackboard (B)",
@@ -201,7 +201,6 @@ public static class Translations
         ["Mettre la barre à la verticale"] = "Make the toolbar vertical",
         ["Mise à jour disponible"] = "Update available",
         ["Quitter"] = "Quit",
-        ["Le raccourci {0} est déjà utilisé par une autre application. Les boutons de la barre restent disponibles, et les réglages permettent d'en choisir un autre."] = "The shortcut {0} is already used by another application. The toolbar buttons remain available, and you can choose another one in the settings.",
         ["Afficher ou masquer la barre"] = "Show or hide the toolbar",
 
         // Mode présentation
@@ -295,6 +294,7 @@ public static class Translations
         ["Suppr"] = "Delete",
         ["Pavé {0}"] = "Numpad {0}",
         ["Touche {0}"] = "Key {0}",
+        ["Le raccourci {0} est déjà utilisé par une autre application. Les boutons de la barre restent disponibles, et les réglages permettent d'en choisir un autre."] = "The shortcut {0} is already used by another application. The toolbar buttons remain available, and you can choose another one in the settings.",
         ["{0} est attribué à : {1}."] = "{0} is assigned to: {1}.",
         ["« {0} » reste actif en permanence : il lui faut Ctrl, Alt ou Win, sinon cette touche ne fonctionnerait plus ailleurs."] = "\"{0}\" is always active: it needs Ctrl, Alt or Win, otherwise this key would stop working elsewhere.",
         ["« {0} » : Ctrl+Alt équivaut à AltGr sur un clavier français et gênerait la saisie."] = "\"{0}\": Ctrl+Alt is the same as AltGr on some keyboards and would interfere with typing.",

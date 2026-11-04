@@ -24,6 +24,47 @@ public class RecordingTests
     }
 
     [Fact]
+    public void A_stop_during_finishing_changes_nothing()
+    {
+        var state = new RecordingState();
+        state.TryStart();
+        state.CountdownElapsed();
+        state.RequestStop();
+        var changes = 0;
+        state.Changed += () => changes++;
+
+        state.RequestStop();
+
+        Assert.Equal(RecordingStatus.Finishing, state.Status);
+        Assert.Equal(0, changes);
+    }
+
+    [Fact]
+    public void A_second_start_is_refused_during_finishing()
+    {
+        var state = new RecordingState();
+        state.TryStart();
+        state.CountdownElapsed();
+        state.RequestStop();
+
+        Assert.False(state.TryStart());
+        Assert.Equal(RecordingStatus.Finishing, state.Status);
+    }
+
+    [Fact]
+    public void A_start_works_again_after_returning_to_idle()
+    {
+        var state = new RecordingState();
+        state.TryStart();
+        state.CountdownElapsed();
+        state.RequestStop();
+        state.Finished();
+
+        Assert.True(state.TryStart());
+        Assert.Equal(RecordingStatus.Countdown, state.Status);
+    }
+
+    [Fact]
     public void A_buffer_error_is_only_stuck_after_five_consecutive_seconds()
     {
         var watch = new AudioBufferErrorWatch();
@@ -169,6 +210,17 @@ public class RecordingTests
         var path = RecordingRules.FilePath(@"C:\Videos", new DateTime(2026, 11, 3, 21, 10, 5), taken.Contains);
 
         Assert.Equal(Path.Combine(@"C:\Videos", "Legendary Pen 2026-11-03 21-10-05 (2).mp4"), path);
+    }
+
+    [Fact]
+    public void Numbers_go_on_while_the_names_are_taken()
+    {
+        var stem = Path.Combine(@"C:\Videos", "Legendary Pen 2026-11-03 21-10-05");
+        var taken = new HashSet<string> { stem + ".mp4", stem + " (2).mp4" };
+
+        var path = RecordingRules.FilePath(@"C:\Videos", new DateTime(2026, 11, 3, 21, 10, 5), taken.Contains);
+
+        Assert.Equal(stem + " (3).mp4", path);
     }
 
     [Theory]
