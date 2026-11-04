@@ -271,6 +271,41 @@ public class RecordingTests
         Assert.Empty(RecordingRules.EndMessages(RecordingEndReason.Requested, hasFile: false));
     }
 
+    [Theory]
+    [InlineData(RecordingAudioProblem.MicrophoneUnavailable, "Micro indisponible : vidéo enregistrée sans son.")]
+    [InlineData(RecordingAudioProblem.SystemSoundUnavailable, "Son de l'ordinateur indisponible : vidéo enregistrée sans son.")]
+    [InlineData(RecordingAudioProblem.Interrupted, "Le son s'est interrompu pendant l'enregistrement : la suite de la vidéo est muette.")]
+    public void A_sound_problem_adds_its_line_after_the_saved_file(RecordingAudioProblem problem, string line)
+    {
+        Assert.Equal(["Vidéo enregistrée : {0}", line], RecordingRules.EndMessages(RecordingEndReason.Requested, true, problem));
+        Assert.Equal(["L'écran enregistré a été débranché.", "Vidéo enregistrée : {0}", line], RecordingRules.EndMessages(RecordingEndReason.MonitorClosed, true, problem));
+        Assert.Equal(["L'enregistrement s'est arrêté sur une erreur. Vidéo gardée : {0}", line], RecordingRules.EndMessages(RecordingEndReason.Failed, true, problem));
+    }
+
+    [Theory]
+    [InlineData(RecordingEndReason.Requested)]
+    [InlineData(RecordingEndReason.MonitorClosed)]
+    [InlineData(RecordingEndReason.Failed)]
+    public void Without_a_video_a_sound_problem_says_nothing_more(RecordingEndReason reason)
+    {
+        Assert.Equal(RecordingRules.EndMessages(reason, false), RecordingRules.EndMessages(reason, false, RecordingAudioProblem.MicrophoneUnavailable));
+    }
+
+    [Fact]
+    public void Every_sound_problem_is_translated()
+    {
+        Assert.Equal("Microphone unavailable: video saved without sound.", Translations.English["Micro indisponible : vidéo enregistrée sans son."]);
+        Assert.Equal("Computer sound unavailable: video saved without sound.", Translations.English["Son de l'ordinateur indisponible : vidéo enregistrée sans son."]);
+
+        foreach (var problem in Enum.GetValues<RecordingAudioProblem>())
+        {
+            foreach (var key in RecordingRules.EndMessages(RecordingEndReason.Requested, true, problem))
+            {
+                Assert.True(Translations.English.ContainsKey(key), key);
+            }
+        }
+    }
+
     [Fact]
     public void Every_end_message_is_translated_with_the_same_placeholders()
     {

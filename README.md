@@ -67,10 +67,12 @@ Le bouton rond de la barre, ou « Enregistrer l'écran » dans le menu de l'icô
 
 - **Le cadre jaune :** Windows entoure l'écran filmé d'un cadre jaune tant que la capture dure. Il signale l'enregistrement et reste affiché ; il ne figure pas dans la vidéo.
 - **Ce qui apparaît dans la vidéo :** tout ce qui est à l'écran, avec les annotations, les tableaux, le curseur et les effets de présentation. La barre, le panneau des calques et le décompte n'y figurent pas. Les autres fenêtres de Legendary Pen, comme les réglages ou le choix d'une zone de capture, y figurent si on les ouvre pendant l'enregistrement. Les effets de présentation sont suspendus le temps d'une capture de zone. Au relâchement du surligneur, les annotations et les effets peuvent manquer sur une image, le temps d'analyser le texte situé dessous.
-- **Où vont les fichiers :** dans le dossier de capture choisi dans les réglages, en MP4 H.264 à 30 images par seconde, sous un nom comme `Legendary Pen 2026-11-03 21-10-05.mp4`. Une notification annonce la fin, et un clic dessus montre le fichier dans son dossier. La vidéo est sans son pour l'instant.
+- **Où vont les fichiers :** dans le dossier de capture choisi dans les réglages, en MP4 H.264 à 30 images par seconde, sous un nom comme `Legendary Pen 2026-11-03 21-10-05.mp4`. Une notification annonce la fin, et un clic dessus montre le fichier dans son dossier.
+- **Le son :** il se choisit dans les réglages : aucun (par défaut), le son de l'ordinateur ou le micro, un seul à la fois, sans mélange. Il s'agit du périphérique par défaut de Windows au démarrage de la vidéo, enregistré en AAC stéréo à 48 kHz. Si le micro ou le son de l'ordinateur n'est pas disponible, par exemple quand Windows refuse l'accès au micro, la vidéo se fait sans son et la notification de fin le dit. Si le périphérique disparaît en route, la vidéo continue et la suite est muette.
+- **Le micro :** il n'est ouvert que si on l'a choisi, et seulement pendant un enregistrement : du début de la vidéo jusqu'à son arrêt. Le reste du temps, Legendary Pen ne l'utilise jamais.
 - **Arrêts automatiques :** l'enregistrement s'arrête proprement et garde le fichier s'il reste moins de 500 Mo sur le disque, si l'écran filmé est débranché ou si sa résolution change. Quitter l'application ou lancer une mise à jour finit d'abord la vidéo, en 15 secondes au plus. Un arrêt forcé du processus laisse en revanche un fichier `.tmp` illisible.
 
-Rien n'est envoyé : la vidéo reste sur cet ordinateur ou dans le dossier choisi, et aucun droit administrateur n'est demandé.
+Rien n'est envoyé : l'image et le son restent sur cet ordinateur ou dans le dossier choisi, et aucun droit administrateur n'est demandé.
 
 ## Signer un PDF
 

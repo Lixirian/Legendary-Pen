@@ -28,6 +28,9 @@ public sealed partial class LocalizationTests : IDisposable
         "Loupe indisponible : {exception.Message}",
         "Saved layers are inconsistent, keeping the current stack: {exception.Message}",
         "The click hook thread did not stop in time.",
+        "Legendary Pen audio capture",
+        "Legendary Pen video samples",
+        "Legendary Pen audio samples",
         "Click effects unavailable: the mouse hook was refused.",
         "The stack already holds the maximum number of layers.",
         "The last layer cannot be removed.",
@@ -198,7 +201,7 @@ public sealed partial class LocalizationTests : IDisposable
                 {
                     var value = match.Groups[2].Value.Replace(@"\n", "\n", StringComparison.Ordinal);
                     var isWrapped = line[..match.Index].TrimEnd().EndsWith("Loc.T(", StringComparison.Ordinal) || line.StartsWith("Tip(", StringComparison.Ordinal);
-                    var isCatalog = line.StartsWith("new(HotkeyAction.", StringComparison.Ordinal) || line.StartsWith("(RecordingEndReason.", StringComparison.Ordinal);
+                    var isCatalog = line.StartsWith("new(HotkeyAction.", StringComparison.Ordinal) || line.StartsWith("(RecordingEndReason.", StringComparison.Ordinal) || line.StartsWith("RecordingAudioProblem.", StringComparison.Ordinal);
 
                     if (isWrapped)
                     {

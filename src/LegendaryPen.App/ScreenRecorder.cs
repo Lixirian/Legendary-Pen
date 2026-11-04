@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.IO;
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.WindowsRuntime;
 using LegendaryPen.Core;
 using Windows.Foundation;
 using Windows.Graphics;
@@ -18,6 +20,9 @@ namespace LegendaryPen.App;
 /// <summary>
 /// Enregistre un écran en MP4 H.264 à 30 images par seconde constantes : la capture ne garde que sa dernière image,
 /// et l'encodeur la copie au rythme d'une horloge, car Windows n'envoie une image que si l'écran change.
+///
+/// Le son choisi s'ajoute en second flux, sur la même horloge. Il ne fait jamais échouer un enregistrement : s'il manque,
+/// la vidéo se fait sans lui, et <see cref="AudioProblem"/> le dit à la fin.
 ///
 /// Une instance ne sert qu'une fois. <see cref="StartAsync"/> ne lève que si l'enregistrement ne peut pas être tenté.
 /// Toute autre fin, y compris une erreur au démarrage, passe par <see cref="Ended"/>, levé une seule fois, sur une tâche à
@@ -51,6 +56,8 @@ internal sealed class ScreenRecorder : IAsyncDisposable
     private static readonly Guid LowLatency = new("9c27891a-ed7a-40e1-88e8-b22727a024ee");
     private const uint Bt709Matrix = 1, Bt709Primaries = 2, Bt709Transfer = 5, StudioRange = 2;
 
+    private const uint AudioBitRate = 192_000;
+
     private readonly object _frameGate = new();
     private readonly object _endGate = new();
     private readonly CancellationTokenSource _stopping = new();
@@ -66,6 +73,8 @@ internal sealed class ScreenRecorder : IAsyncDisposable
     private EncodingAttempt? _attempt;
     private volatile IAsyncActionWithProgress<double>? _transcode;
     private volatile string? _savedPath;
+    private volatile RecordingAudioProblem _audioProblem;
+    private RecordingAudio _audioKind;
     private string _temporaryPath = "";
     private bool _temporaryCreated;
     private bool _captureClosed;
@@ -100,13 +109,15 @@ internal sealed class ScreenRecorder : IAsyncDisposable
     /// </summary>
     public string? SavedPath => _savedPath;
 
+    /// <summary>Ce qui est arrivé au son, fixé avant <see cref="Ended"/> si la vidéo a suivi son cours.</summary>
+    public RecordingAudioProblem AudioProblem => _audioProblem;
+
     /// <summary>Points d'essai du banc. Tous inactifs en usage normal.</summary>
     internal RecorderProbes Probes { get; } = new();
 
     /// <summary>
     /// Se termine quand l'encodeur demande sa première image, ou quand l'enregistrement a déjà pris fin : en 15 s au plus,
     /// au-delà de quoi l'enregistrement a échoué.
-    /// Le son n'existe pas encore : toute source est traitée comme <see cref="RecordingAudio.None"/>.
     /// </summary>
     public Task StartAsync(MonitorArea monitor, string path, RecordingAudio audio)
     {
@@ -120,8 +131,7 @@ internal sealed class ScreenRecorder : IAsyncDisposable
             throw new InvalidOperationException("A recorder runs only once.");
         }
 
-        // Vidéo seule pour l'instant : le son arrivera avec un second flux de la source.
-        _ = audio;
+        _audioKind = audio;
 
         // Tout le travail se fait hors du fil de l'appelant : ni la capture ni l'encodeur ne touchent l'interface.
         _ = Task.Run(() => RunAsync(monitor, path));
@@ -244,25 +254,50 @@ internal sealed class ScreenRecorder : IAsyncDisposable
 
     private async Task EncodeWithRetryAsync()
     {
+        var withSound = _audioKind != RecordingAudio.None;
+
         try
         {
-            await EncodeAsync(hardware: true).ConfigureAwait(false);
+            await EncodeAsync(hardware: true, withSound).ConfigureAwait(false);
         }
         catch (Exception exception) when (CanRetry(exception))
         {
             // Une seule reprise, en logiciel : une nouvelle panne remonte et termine l'enregistrement.
             Debug.WriteLine(exception);
             DeleteTemporary();
-            await EncodeAsync(hardware: false).ConfigureAwait(false);
+
+            try
+            {
+                await EncodeAsync(hardware: false, withSound).ConfigureAwait(false);
+            }
+            catch (Exception again) when (withSound && CanRetry(again))
+            {
+                // Le son ne fait jamais échouer une vidéo : si c'est peut-être lui, un dernier essai se passe de lui.
+                Debug.WriteLine(again);
+                DeleteTemporary();
+                await EncodeAsync(hardware: false, withSound: false).ConfigureAwait(false);
+                _audioProblem = Unavailable();
+            }
         }
     }
+
+    private RecordingAudioProblem Unavailable() =>
+        _audioKind == RecordingAudio.Microphone ? RecordingAudioProblem.MicrophoneUnavailable : RecordingAudioProblem.SystemSoundUnavailable;
 
     private bool CanRetry(Exception exception) =>
         !_stopping.IsCancellationRequested && !IsDiskFull(exception) && _attempt is not { DeviceLost: true } && (_attempt?.Samples ?? 0) < StartConfirmedSamples;
 
-    private async Task EncodeAsync(bool hardware)
+    private AudioSource? OpenAudio()
+    {
+        var audio = AudioSource.TryStart(_audioKind, Probes);
+        _audioProblem = audio is null ? Unavailable() : RecordingAudioProblem.None;
+        return audio;
+    }
+
+    private async Task EncodeAsync(bool hardware, bool withSound)
     {
         Probes.UsedHardware = hardware;
+        Probes.UsedAudio = withSound;
         Probes.EncoderStarting?.Invoke(hardware);
 
         if (_stopping.IsCancellationRequested)
@@ -270,7 +305,8 @@ internal sealed class ScreenRecorder : IAsyncDisposable
             return;
         }
 
-        var attempt = new EncodingAttempt(new FrameTextures(_direct3D!, _width, _height, Probes), _stopping.Token);
+        var audio = withSound ? OpenAudio() : null;
+        var attempt = new EncodingAttempt(new FrameTextures(_direct3D!, _width, _height, Probes), _stopping.Token, audio);
         _attempt = attempt;
 
         try
@@ -278,10 +314,11 @@ internal sealed class ScreenRecorder : IAsyncDisposable
             using var output = await OpenTemporaryAsync().ConfigureAwait(false);
             Probes.OutputOpened?.Invoke(output);
             TypedEventHandler<MediaStreamSource, MediaStreamSourceSampleRequestedEventArgs> onSample = (_, args) => OnSampleRequested(attempt, args);
-            var source = CreateSource();
+            var source = CreateSource(audio is not null);
             source.SampleRequested += onSample;
+            StartServing(attempt);
             var transcoder = new MediaTranscoder { HardwareAccelerationEnabled = hardware };
-            var prepared = await transcoder.PrepareMediaStreamSourceTranscodeAsync(source, output, CreateProfile(hardware));
+            var prepared = await transcoder.PrepareMediaStreamSourceTranscodeAsync(source, output, CreateProfile(hardware, audio is not null));
 
             if (!prepared.CanTranscode)
             {
@@ -315,6 +352,11 @@ internal sealed class ScreenRecorder : IAsyncDisposable
         {
             // Une demande d'image peut survivre à la fin de l'encodeur : elle ne doit plus rien toucher une fois l'essai fermé.
             attempt.Close();
+
+            if (audio is { DeviceLost: true } || attempt.AudioFailed)
+            {
+                _audioProblem = RecordingAudioProblem.Interrupted;
+            }
         }
     }
 
@@ -339,18 +381,22 @@ internal sealed class ScreenRecorder : IAsyncDisposable
         return await file.OpenAsync(FileAccessMode.ReadWrite);
     }
 
-    /// <summary>Une seule piste pour l'instant. Le son s'ajoutera en second descripteur, et sera servi selon args.Request.StreamDescriptor.</summary>
-    private MediaStreamSource CreateSource()
+    private MediaStreamSource CreateSource(bool withSound)
     {
         var properties = VideoEncodingProperties.CreateUncompressed(MediaEncodingSubtypes.Bgra8, (uint)_width, (uint)_height);
-        var source = new MediaStreamSource(new VideoStreamDescriptor(properties)) { BufferTime = TimeSpan.Zero };
+        var video = new VideoStreamDescriptor(properties);
+        var source = withSound ? new MediaStreamSource(video, new AudioStreamDescriptor(AudioSource.Format)) : new MediaStreamSource(video);
+        source.BufferTime = TimeSpan.Zero;
         source.Starting += OnSourceStarting;
         return source;
     }
 
-    private MediaEncodingProfile CreateProfile(bool hardware)
+    private MediaEncodingProfile CreateProfile(bool hardware, bool withSound)
     {
-        var profile = new MediaEncodingProfile { Audio = null };
+        var profile = new MediaEncodingProfile
+        {
+            Audio = withSound ? AudioEncodingProperties.CreateAac(AudioTimeline.FramesPerSecond, AudioTimeline.Channels, AudioBitRate) : null,
+        };
         profile.Container.Subtype = MediaEncodingSubtypes.Mpeg4;
         profile.Video.Subtype = MediaEncodingSubtypes.H264;
         profile.Video.Width = (uint)_width;
@@ -378,35 +424,22 @@ internal sealed class ScreenRecorder : IAsyncDisposable
     private void OnSourceStarting(MediaStreamSource sender, MediaStreamSourceStartingEventArgs args) =>
         args.Request.SetActualStartPosition(TimeSpan.Zero);
 
-    private void OnSampleRequested(EncodingAttempt attempt, MediaStreamSourceSampleRequestedEventArgs args)
-    {
-        if (!attempt.TryEnter())
-        {
-            return;
-        }
-
-        try
-        {
-            args.Request.Sample = NextVideoSample(attempt);
-        }
-        catch (Exception exception)
-        {
-            // La vidéo se clôt normalement, sans signaler d'erreur à l'encodeur : ce qui est déjà écrit reste lisible.
-            Debug.WriteLine(exception);
-            attempt.Fault ??= exception;
-            EndVideo(args);
-        }
-        finally
-        {
-            attempt.Leave();
-        }
-    }
-
-    private static void EndVideo(MediaStreamSourceSampleRequestedEventArgs args)
+    /// <summary>
+    /// La source fait toutes ses demandes l'une après l'autre, sur un même fil, en alternant image et son : attendre ici l'heure
+    /// d'une image priverait le son de ses demandes, à raison d'une par image. Chaque demande part donc aussitôt, différée,
+    /// vers le fil de son flux, et les deux flux ne s'attendent jamais.
+    /// </summary>
+    private static void OnSampleRequested(EncodingAttempt attempt, MediaStreamSourceSampleRequestedEventArgs args)
     {
         try
         {
-            args.Request.Sample = null;
+            var request = args.Request;
+            var pending = new PendingSample(request, request.GetDeferral());
+
+            if (!attempt.TryPost(pending, request.StreamDescriptor is AudioStreamDescriptor))
+            {
+                Answer(pending, null);
+            }
         }
         catch (Exception exception)
         {
@@ -415,7 +448,129 @@ internal sealed class ScreenRecorder : IAsyncDisposable
         }
     }
 
-    /// <summary>Renvoie null pour clore la vidéo. Bloque le fil de l'encodeur jusqu'à l'heure de l'image.</summary>
+    private static void Answer(PendingSample pending, MediaStreamSample? sample)
+    {
+        try
+        {
+            pending.Request.Sample = sample;
+        }
+        catch (Exception exception)
+        {
+            // La demande est morte avec son encodeur : il n'y a plus personne à prévenir.
+            Debug.WriteLine(exception);
+        }
+
+        try
+        {
+            pending.Deferral.Complete();
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(exception);
+        }
+    }
+
+    /// <summary>Un fil par flux, le temps de l'essai. Chacun s'arrête de lui-même quand l'essai est fermé et ses demandes servies.</summary>
+    private void StartServing(EncodingAttempt attempt)
+    {
+        attempt.Enter();
+        new Thread(() => ServeVideo(attempt)) { IsBackground = true, Name = "Legendary Pen video samples" }.Start();
+
+        if (attempt.Audio is not null)
+        {
+            attempt.Enter();
+            new Thread(() => ServeAudio(attempt)) { IsBackground = true, Name = "Legendary Pen audio samples" }.Start();
+        }
+    }
+
+    private void ServeVideo(EncodingAttempt attempt)
+    {
+        try
+        {
+            foreach (var pending in attempt.VideoRequests.GetConsumingEnumerable())
+            {
+                MediaStreamSample? sample = null;
+
+                try
+                {
+                    sample = NextVideoSample(attempt);
+                }
+                catch (Exception exception)
+                {
+                    // La vidéo se clôt normalement, sans signaler d'erreur à l'encodeur : ce qui est déjà écrit reste lisible.
+                    Debug.WriteLine(exception);
+                    attempt.Fault ??= exception;
+                }
+
+                // Sans vidéo, l'encodeur attendrait la fin du son pour finir : elle vient avec celle de l'image, quelle qu'en soit la cause.
+                if (sample is null)
+                {
+                    attempt.Audio?.Finish();
+                }
+
+                Answer(pending, sample);
+                attempt.Leave();
+            }
+        }
+        finally
+        {
+            attempt.Leave();
+        }
+    }
+
+    private void ServeAudio(EncodingAttempt attempt)
+    {
+        try
+        {
+            foreach (var pending in attempt.AudioRequests.GetConsumingEnumerable())
+            {
+                MediaStreamSample? sample = null;
+
+                try
+                {
+                    sample = NextAudioSample(attempt.Audio!);
+                }
+                catch (Exception exception)
+                {
+                    // Le son s'arrête là, et la vidéo continue seule.
+                    Debug.WriteLine(exception);
+                    attempt.AudioFailed = true;
+                    attempt.Audio!.Finish();
+                }
+
+                Answer(pending, sample);
+                attempt.Leave();
+            }
+        }
+        finally
+        {
+            attempt.Leave();
+        }
+    }
+
+    /// <summary>Renvoie null à la fin du son. N'attend que le son : l'arrêt le ferme en un temps borné, même si la capture est bloquée.</summary>
+    private MediaStreamSample? NextAudioSample(AudioSource audio)
+    {
+        while (true)
+        {
+            if (audio.TryRead(out var pcm, out var timestamp))
+            {
+                Probes.BeforeAudioSample?.Invoke(timestamp);
+                var sample = MediaStreamSample.CreateFromBuffer(pcm.AsBuffer(), timestamp);
+                sample.Duration = AudioTimeline.TimeOf(pcm.Length / AudioTimeline.BytesPerFrame);
+                return sample;
+            }
+
+            if (audio.IsFinished)
+            {
+                return null;
+            }
+
+            Thread.Sleep(2);
+        }
+    }
+
+    /// <summary>Renvoie null pour clore la vidéo. Bloque le fil des images jusqu'à l'heure de l'image.</summary>
     private MediaStreamSample? NextVideoSample(EncodingAttempt attempt)
     {
         Probes.BeforeSample?.Invoke(attempt.LastIndex + 1);
@@ -425,6 +580,7 @@ internal sealed class ScreenRecorder : IAsyncDisposable
         {
             // L'heure zéro est la demande de la première image : la vidéo commence sans le temps de préparation de l'encodeur.
             attempt.Clock.Restart();
+            attempt.Audio?.SetOrigin(Stopwatch.GetTimestamp());
             _running.TrySetResult();
         }
 
@@ -840,6 +996,11 @@ internal sealed class ScreenRecorder : IAsyncDisposable
 }
 
 /// <summary>
+/// Une demande de l'encodeur, en attente de son échantillon. Tenue ici, elle reste vivante jusqu'à la réponse.
+/// </summary>
+internal sealed record PendingSample(MediaStreamSourceSampleRequest Request, MediaStreamSourceSampleRequestDeferral Deferral);
+
+/// <summary>
 /// Un essai d'encodage et tout ce que ses demandes d'image touchent. Une demande peut survivre à son essai : elle écrit ici
 /// et jamais dans l'essai suivant, et ne touche plus aux textures une fois l'essai fermé.
 /// </summary>
@@ -848,16 +1009,30 @@ internal sealed class EncodingAttempt
     private readonly CancellationTokenSource _closing;
     private int _users = 1;
 
-    public EncodingAttempt(FrameTextures textures, CancellationToken stopping)
+    public EncodingAttempt(FrameTextures textures, CancellationToken stopping, AudioSource? audio)
     {
         Textures = textures;
+        Audio = audio;
         _closing = CancellationTokenSource.CreateLinkedTokenSource(stopping);
         Stop = _closing.Token;
+
+        // Dès l'arrêt, le micro est relâché, même si l'encodeur traîne ensuite.
+        if (audio is not null)
+        {
+            Stop.Register(audio.Finish);
+        }
     }
 
     public object Gate { get; } = new();
 
     public FrameTextures Textures { get; }
+
+    /// <summary>Le son de cet essai ; null sans son. L'essai le ferme, et un nouvel essai en rouvre un.</summary>
+    public AudioSource? Audio { get; }
+
+    public BlockingCollection<PendingSample> VideoRequests { get; } = [];
+
+    public BlockingCollection<PendingSample> AudioRequests { get; } = [];
 
     public Stopwatch Clock { get; } = new();
 
@@ -872,18 +1047,30 @@ internal sealed class EncodingAttempt
 
     public bool DeviceLost { get; set; }
 
+    public bool AudioFailed { get; set; }
+
     public bool IsClosed { get; private set; }
 
-    public bool TryEnter()
+    public void Enter()
     {
         lock (Gate)
         {
-            if (IsClosed)
+            _users++;
+        }
+    }
+
+    /// <summary>Faux si l'essai est fermé : personne ne servira cette demande.</summary>
+    public bool TryPost(PendingSample pending, bool isAudio)
+    {
+        lock (Gate)
+        {
+            if (IsClosed || (isAudio && Audio is null))
             {
                 return false;
             }
 
             _users++;
+            (isAudio ? AudioRequests : VideoRequests).Add(pending);
             return true;
         }
     }
@@ -900,6 +1087,8 @@ internal sealed class EncodingAttempt
 
         _closing.Dispose();
         Textures.Dispose();
+        VideoRequests.Dispose();
+        AudioRequests.Dispose();
     }
 
     public void Close()
@@ -907,6 +1096,8 @@ internal sealed class EncodingAttempt
         lock (Gate)
         {
             IsClosed = true;
+            VideoRequests.CompleteAdding();
+            AudioRequests.CompleteAdding();
         }
 
         _closing.Cancel();
@@ -1078,7 +1269,30 @@ internal sealed class RecorderProbes
     /// <summary>Appelé quand l'encodeur a fini. Une attente simule une fin qui traîne au-delà de la limite.</summary>
     public Action? AfterEncoding { get; set; }
 
+    /// <summary>Appelé à l'ouverture du son. Une exception simule un micro refusé ou absent, une attente un pilote bloqué.</summary>
+    public Action<RecordingAudio>? AudioOpening { get; set; }
+
+    /// <summary>Appelé sur le fil de capture une fois le son ouvert. Une attente simule une capture bloquée.</summary>
+    public Action? AudioOpened { get; set; }
+
+    /// <summary>Remplace l'heure de chaque paquet, pour simuler une horloge de périphérique qui dérive.</summary>
+    public Func<long, long>? AudioPacketTime { get; set; }
+
+    /// <summary>Écarte un paquet selon son heure, pour simuler un périphérique qui se tait. Une exception simule sa disparition.</summary>
+    public Func<long, bool>? AudioPacketDropped { get; set; }
+
+    /// <summary>Appelé avant chaque échantillon de son. Une exception simule une panne de ce flux.</summary>
+    public Action<TimeSpan>? BeforeAudioSample { get; set; }
+
+    /// <summary>Reçoit chaque paquet capté, pour mesurer la dérive du périphérique.</summary>
+    public Action<long, int, bool, bool, long>? AudioPacketSeen { get; set; }
+
+    public void AudioPacket(long elapsedTicks, int frames, bool silent, bool discontinuity, long corrections) =>
+        AudioPacketSeen?.Invoke(elapsedTicks, frames, silent, discontinuity, corrections);
+
     public bool UsedHardware { get; set; }
+
+    public bool UsedAudio { get; set; }
 
     public int Samples { get; set; }
 

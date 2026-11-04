@@ -10,6 +10,9 @@ public enum RecordingAudio { None, System, Microphone }
 /// <summary>Pourquoi un enregistrement s'est terminé.</summary>
 public enum RecordingEndReason { Requested, MonitorClosed, DiskFull, Failed, ScreenChanged }
 
+/// <summary>Ce qui est arrivé au son. Il ne fait jamais échouer un enregistrement : la vidéo continue sans lui, et le message le dit.</summary>
+public enum RecordingAudioProblem { None, MicrophoneUnavailable, SystemSoundUnavailable, Interrupted }
+
 /// <summary>
 /// Cycle de vie d'un enregistrement : Idle, Countdown, Recording, Finishing, puis Idle.
 /// Une transition illégale est ignorée sans rien lever ni notifier : l'arrêt peut croiser la fin de la capture.
@@ -159,7 +162,23 @@ public static class RecordingRules
     /// Textes français, clés de <see cref="Loc"/>, de la notification de fin, ligne par ligne. {0} est le fichier.
     /// Un arrêt demandé qui n'a rien écrit ne dit rien : il n'y a rien à annoncer.
     /// </summary>
-    public static IReadOnlyList<string> EndMessages(RecordingEndReason reason, bool hasFile)
+    public static IReadOnlyList<string> EndMessages(RecordingEndReason reason, bool hasFile, RecordingAudioProblem audio = RecordingAudioProblem.None)
+    {
+        var lines = EndOfVideoMessages(reason, hasFile);
+
+        // Sans vidéo, le son n'a plus d'importance.
+        var soundLine = audio switch
+        {
+            RecordingAudioProblem.MicrophoneUnavailable => "Micro indisponible : vidéo enregistrée sans son.",
+            RecordingAudioProblem.SystemSoundUnavailable => "Son de l'ordinateur indisponible : vidéo enregistrée sans son.",
+            RecordingAudioProblem.Interrupted => "Le son s'est interrompu pendant l'enregistrement : la suite de la vidéo est muette.",
+            _ => null,
+        };
+
+        return hasFile && soundLine is not null ? [.. lines, soundLine] : lines;
+    }
+
+    private static IReadOnlyList<string> EndOfVideoMessages(RecordingEndReason reason, bool hasFile)
     {
         return (reason, hasFile) switch
         {

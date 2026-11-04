@@ -412,7 +412,7 @@ internal sealed class RecordingController
     {
         var path = run.Recorder?.SavedPath;
 
-        if (FormatEnd(reason, path) is { } message)
+        if (FormatEnd(reason, path, run.Recorder?.AudioProblem ?? RecordingAudioProblem.None) is { } message)
         {
             _notify(message, ShowFile(path));
         }
@@ -427,16 +427,16 @@ internal sealed class RecordingController
     {
         await Task.Delay(LateFileCheck);
 
-        if (!_close.IsQuiet && recorder.SavedPath is { } path && FormatEnd(RecordingEndReason.Failed, path) is { } message)
+        if (!_close.IsQuiet && recorder.SavedPath is { } path && FormatEnd(RecordingEndReason.Failed, path, recorder.AudioProblem) is { } message)
         {
             _notify(message, ShowFile(path));
         }
     }
 
     // Le nom seul : le chemin complet déborderait de la notification, et le clic montre le dossier.
-    private static string? FormatEnd(RecordingEndReason reason, string? path)
+    private static string? FormatEnd(RecordingEndReason reason, string? path, RecordingAudioProblem audio)
     {
-        var keys = RecordingRules.EndMessages(reason, path is not null);
+        var keys = RecordingRules.EndMessages(reason, path is not null, audio);
         var name = Path.GetFileName(path) ?? string.Empty;
 
         return keys.Count == 0 ? null : string.Join("\n", keys.Select(key => Loc.T(key, name)));
