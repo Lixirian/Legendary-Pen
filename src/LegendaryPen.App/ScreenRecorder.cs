@@ -60,6 +60,7 @@ internal sealed class ScreenRecorder : IAsyncDisposable
 
     private readonly object _frameGate = new();
     private readonly object _endGate = new();
+    private readonly object _fileGate = new();
     private readonly CancellationTokenSource _stopping = new();
     private readonly TaskCompletionSource _running = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -73,10 +74,12 @@ internal sealed class ScreenRecorder : IAsyncDisposable
     private EncodingAttempt? _attempt;
     private volatile IAsyncActionWithProgress<double>? _transcode;
     private volatile string? _savedPath;
+    private volatile bool _mayBeIncomplete;
+    private volatile bool _temporaryCreated;
+    private bool _fileSettled;
     private volatile RecordingAudioProblem _audioProblem;
     private RecordingAudio _audioKind;
     private string _temporaryPath = "";
-    private bool _temporaryCreated;
     private bool _captureClosed;
     private bool _stoppingDisposed;
     private SizeInt32 _contentSize;
@@ -105,9 +108,13 @@ internal sealed class ScreenRecorder : IAsyncDisposable
 
     /// <summary>
     /// Le fichier où se trouve la vidéo, fixé avant <see cref="Ended"/> ; null s'il n'y en a pas. C'est le « .tmp » si le nom
-    /// final est pris. Après un abandon, il peut encore passer de null au fichier final si l'encodeur finit plus tard.
+    /// final est pris, ou si le fichier n'a pas pu être confirmé comme une vidéo finie. Après un abandon, il peut encore changer :
+    /// le « .tmp » annoncé prend son nom final si l'encodeur finit plus tard.
     /// </summary>
     public string? SavedPath => _savedPath;
+
+    /// <summary>Vrai si le fichier gardé n'a pas pu être confirmé comme une vidéo finie : le message le dit.</summary>
+    public bool MayBeIncomplete => _mayBeIncomplete;
 
     /// <summary>Ce qui est arrivé au son, fixé avant <see cref="Ended"/> si la vidéo a suivi son cours.</summary>
     public RecordingAudioProblem AudioProblem => _audioProblem;
@@ -185,7 +192,7 @@ internal sealed class ScreenRecorder : IAsyncDisposable
         try
         {
             CloseEverything();
-            var settled = SettleFile(path);
+            var settled = SettleFile(path, failure is not null && IsDiskFull(failure));
 
             if (failure is not null)
             {
@@ -201,7 +208,9 @@ internal sealed class ScreenRecorder : IAsyncDisposable
         }
         catch (Exception exception)
         {
+            // Quoi qu'il soit arrivé ici, un fichier encore en place reste annoncé.
             Debug.WriteLine(exception);
+            PublishTemporary();
         }
         finally
         {
@@ -254,7 +263,8 @@ internal sealed class ScreenRecorder : IAsyncDisposable
 
     private async Task EncodeWithRetryAsync()
     {
-        var withSound = _audioKind != RecordingAudio.None;
+        // Une valeur inconnue ne vaut pas un choix : sans demande claire, aucun périphérique de son ne s'ouvre.
+        var withSound = _audioKind is RecordingAudio.System or RecordingAudio.Microphone;
 
         try
         {
@@ -306,6 +316,14 @@ internal sealed class ScreenRecorder : IAsyncDisposable
         }
 
         var audio = withSound ? OpenAudio() : null;
+
+        // L'ouverture peut durer 3 s : un arrêt arrivé entre-temps relâche le micro tout de suite.
+        if (_stopping.IsCancellationRequested)
+        {
+            audio?.Finish();
+            return;
+        }
+
         var attempt = new EncodingAttempt(new FrameTextures(_direct3D!, _width, _height, Probes), _stopping.Token, audio);
         _attempt = attempt;
 
@@ -786,8 +804,54 @@ internal sealed class ScreenRecorder : IAsyncDisposable
     /// </summary>
     private async Task AbandonAsync()
     {
-        await Task.WhenAny(Task.Run(CloseCapture), Task.Delay(CloseCaptureLimit)).ConfigureAwait(false);
+        var hasContent = Task.Run(TemporaryHasContent);
+        await Task.WhenAny(Task.WhenAll(Task.Run(CloseCapture), hasContent), Task.Delay(CloseCaptureLimit)).ConfigureAwait(false);
+
+        // Le fichier reste sur le disque : le message doit le dire, même si un dossier bloqué empêche de le regarder.
+        if (!hasContent.IsCompletedSuccessfully || hasContent.Result)
+        {
+            PublishTemporary();
+        }
+
         End(RecordingEndReason.Failed);
+    }
+
+    private bool TemporaryHasContent()
+    {
+        if (!_temporaryCreated)
+        {
+            return false;
+        }
+
+        try
+        {
+            using var file = new FileStream(_temporaryPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            return file.Length > 0;
+        }
+        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+        {
+            Debug.WriteLine(exception);
+            return false;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Illisible n'est pas vide : dans le doute, le fichier est annoncé.
+            Debug.WriteLine(exception);
+            return true;
+        }
+    }
+
+    /// <summary>Annonce le « .tmp » tant que son sort n'est pas fixé. La fin de l'encodeur, même plus tard, a le dernier mot.</summary>
+    private void PublishTemporary()
+    {
+        lock (_fileGate)
+        {
+            if (!_fileSettled && _temporaryCreated)
+            {
+                _mayBeIncomplete = true;
+                _savedPath = _temporaryPath;
+            }
+        }
     }
 
     private void CancelTranscode()
@@ -862,52 +926,37 @@ internal sealed class ScreenRecorder : IAsyncDisposable
     }
 
     /// <summary>
-    /// Un fichier lisible prend son nom final ; un fichier illisible est supprimé.
-    /// Renvoie vrai si la vidéo est à sa place, ou s'il n'y avait rien à écrire.
+    /// Fixe le sort du fichier, sans jamais perdre une vidéo : voir <see cref="RecordingFile"/>.
+    /// Renvoie vrai si la vidéo porte son nom final, ou s'il n'y avait rien à écrire.
     /// </summary>
-    private bool SettleFile(string path)
+    private bool SettleFile(string path, bool diskFull)
     {
         if (!_temporaryCreated)
         {
+            lock (_fileGate)
+            {
+                _fileSettled = true;
+                _savedPath = null;
+            }
+
             return true;
         }
 
-        bool complete;
+        Probes.BeforeSettle?.Invoke(_temporaryPath);
+        var outcome = RecordingFile.Settle(_temporaryPath, path, diskFull);
 
-        try
+        lock (_fileGate)
         {
-            using var file = new FileStream(_temporaryPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            complete = RecordingRules.IsCompleteMp4(file);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            Debug.WriteLine(exception);
-            complete = false;
+            _fileSettled = true;
+            _mayBeIncomplete = outcome.MayBeIncomplete;
+            _savedPath = outcome.SavedPath;
+            _temporaryCreated = outcome.SavedPath == _temporaryPath;
         }
 
-        if (!complete)
-        {
-            DeleteTemporary();
-            return false;
-        }
-
-        try
-        {
-            File.Move(_temporaryPath, path, overwrite: false);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            // Le fichier reste en .tmp si son nom final est pris : une vidéo lisible n'est jamais perdue.
-            Debug.WriteLine(exception);
-            _savedPath = _temporaryPath;
-            return false;
-        }
-
-        _temporaryCreated = false;
-        _savedPath = Path.GetFullPath(path);
-        return true;
+        return outcome.IsInPlace;
     }
 
+    // Seulement pour une reprise : l'essai abandonné a moins d'une seconde de vidéo, et le suivant réécrit ce même fichier.
     private void DeleteTemporary()
     {
         if (!_temporaryCreated)
@@ -1007,6 +1056,10 @@ internal sealed record PendingSample(MediaStreamSourceSampleRequest Request, Med
 internal sealed class EncodingAttempt
 {
     private readonly CancellationTokenSource _closing;
+
+    // Séparé de Gate, que la copie tient tout du long : un pilote bloqué ne doit pas retenir le fil des demandes de l'encodeur.
+    private readonly object _requestGate = new();
+    private bool _acceptsRequests = true;
     private int _users = 1;
 
     public EncodingAttempt(FrameTextures textures, CancellationToken stopping, AudioSource? audio)
@@ -1053,7 +1106,7 @@ internal sealed class EncodingAttempt
 
     public void Enter()
     {
-        lock (Gate)
+        lock (_requestGate)
         {
             _users++;
         }
@@ -1062,9 +1115,9 @@ internal sealed class EncodingAttempt
     /// <summary>Faux si l'essai est fermé : personne ne servira cette demande.</summary>
     public bool TryPost(PendingSample pending, bool isAudio)
     {
-        lock (Gate)
+        lock (_requestGate)
         {
-            if (IsClosed || (isAudio && Audio is null))
+            if (!_acceptsRequests || (isAudio && Audio is null))
             {
                 return false;
             }
@@ -1077,7 +1130,7 @@ internal sealed class EncodingAttempt
 
     public void Leave()
     {
-        lock (Gate)
+        lock (_requestGate)
         {
             if (--_users > 0)
             {
@@ -1093,11 +1146,16 @@ internal sealed class EncodingAttempt
 
     public void Close()
     {
+        lock (_requestGate)
+        {
+            _acceptsRequests = false;
+            VideoRequests.CompleteAdding();
+            AudioRequests.CompleteAdding();
+        }
+
         lock (Gate)
         {
             IsClosed = true;
-            VideoRequests.CompleteAdding();
-            AudioRequests.CompleteAdding();
         }
 
         _closing.Cancel();
@@ -1268,6 +1326,12 @@ internal sealed class RecorderProbes
 
     /// <summary>Appelé quand l'encodeur a fini. Une attente simule une fin qui traîne au-delà de la limite.</summary>
     public Action? AfterEncoding { get; set; }
+
+    /// <summary>Appelé avec le fichier temporaire juste avant de décider de son sort, pour le faire tenir par un autre programme.</summary>
+    public Action<string>? BeforeSettle { get; set; }
+
+    /// <summary>Remplace, si non nul, le résultat de la lecture d'un tampon de son, pour simuler ses erreurs sans en prendre aucun.</summary>
+    public Func<int>? AudioBufferResult { get; set; }
 
     /// <summary>Appelé à l'ouverture du son. Une exception simule un micro refusé ou absent, une attente un pilote bloqué.</summary>
     public Action<RecordingAudio>? AudioOpening { get; set; }

@@ -80,7 +80,7 @@ public sealed class SettingsStore(string path)
 
         try
         {
-            return JsonSerializer.Deserialize<AppSettings>(json, Options) ?? SetAsideUnreadableFile();
+            return JsonSerializer.Deserialize<AppSettings>(json, Options) is { } settings ? Normalized(settings) : SetAsideUnreadableFile();
         }
         catch (JsonException)
         {
@@ -104,6 +104,10 @@ public sealed class SettingsStore(string path)
             File.Delete(temporaryPath);
         }
     }
+
+    // Une valeur inconnue, écrite à la main ou par une autre version, ne doit jamais ouvrir un micro : sans choix clair, pas de son.
+    private static AppSettings Normalized(AppSettings settings) =>
+        Enum.IsDefined(settings.RecordingAudio) ? settings : settings with { RecordingAudio = RecordingAudio.None };
 
     private AppSettings SetAsideUnreadableFile()
     {

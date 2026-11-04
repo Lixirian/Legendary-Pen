@@ -61,6 +61,7 @@ public partial class ToolbarWindow : Window
     private bool _closing;
     private string _recordText = Loc.T("Enregistrer l'écran");
     private bool _recordEnabled = true;
+    private bool _recordingActive;
 
     public ToolbarWindow(
         AppState state,
@@ -415,7 +416,7 @@ public partial class ToolbarWindow : Window
             DateTime.UtcNow - _lastInteraction,
             _collapseDelay,
             IsMouseOver,
-            _dialogOpen || _presentationMenu.IsOpen || _layersWindow is not null,
+            _dialogOpen || _presentationMenu.IsOpen || _layersWindow is not null || _recordingActive,
             _collapsed);
 
         if (shouldCollapse)
@@ -934,8 +935,19 @@ public partial class ToolbarWindow : Window
     }
 
     /// <summary>Montre l'état de l'enregistrement sur le bouton : rouge avec la durée une fois lancé.</summary>
-    public void ShowRecording(bool filming, string elapsed, string command, bool enabled)
+    /// <param name="active">Un enregistrement est en cours, de son décompte à sa fin : la barre reste ouverte, et l'arrêt reste à un clic.</param>
+    public void ShowRecording(bool filming, string elapsed, string command, bool enabled, bool active)
     {
+        if (active && !_recordingActive)
+        {
+            SetCollapsed(false);
+        }
+        else if (!active && _recordingActive)
+        {
+            _lastInteraction = DateTime.UtcNow;
+        }
+
+        _recordingActive = active;
         _recordText = command;
         _recordEnabled = enabled;
         RecordButton.IsEnabled = enabled;

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Windows.Threading;
 using LegendaryPen.Core;
+using Microsoft.Win32;
 
 namespace LegendaryPen.App;
 
@@ -22,6 +23,9 @@ internal sealed class RecordingController
     private static readonly TimeSpan LateFileCheck = TimeSpan.FromSeconds(30);
 
     private static readonly TimeSpan EndedGrace = TimeSpan.FromSeconds(1);
+
+    // Windows n'attend pas longtemps avant la veille : assez pour finir la vidéo d'ordinaire, sans retenir la mise en veille.
+    private static readonly TimeSpan SuspendWait = TimeSpan.FromMilliseconds(1500);
 
     private readonly RecordingState _state;
     private readonly Dispatcher _dispatcher;
@@ -57,12 +61,15 @@ internal sealed class RecordingController
         _excludeFromCapture = excludeFromCapture;
         _restoreCapture = restoreCapture;
         _notify = notify;
-        IsSupported = ScreenRecorder.IsSupported;
+        IsSupported = SupportedOrFalse(() => ScreenRecorder.IsSupported);
 
         _state.Changed += () => DisplayChanged?.Invoke();
         _ticker.Tick += OnTick;
         _diskTimer.Tick += OnDiskTimer;
     }
+
+    /// <summary>Point d'essai du banc : reçoit l'enregistreur de chaque essai avant son démarrage. Inactif en usage normal.</summary>
+    internal Action<ScreenRecorder>? RecorderCreated { get; set; }
 
     /// <summary>L'état ou la durée affichée ont changé.</summary>
     public event Action? DisplayChanged;
@@ -159,7 +166,8 @@ internal sealed class RecordingController
         }
 
         // Ended donne la vraie raison, juste après la fin de l'arrêt. S'il ne vient pas, l'échec est la seule réponse honnête.
-        if (!_close.IsQuiet && stopped)
+        // Le verrou de fermeture ne se lit que sur le fil de l'interface.
+        if (stopped && !await _dispatcher.InvokeAsync(() => _close.IsQuiet))
         {
             await Task.WhenAny(run.Finished.Task, Task.Delay(EndedGrace)).ConfigureAwait(false);
         }
@@ -169,6 +177,62 @@ internal sealed class RecordingController
 
     /// <summary>La mise à jour ou la fin de session n'aura pas lieu : l'application continue, et on peut de nouveau enregistrer, sauf si autre chose la ferme.</summary>
     public void Reopen(RecordingClose reason) => _close.Leave(reason);
+
+    /// <summary>
+    /// La veille arrive : arrête ce qui tourne pour que la vidéo se finisse avant, et attend un peu. Un décompte est annulé, pour
+    /// qu'aucun enregistrement ne démarre tout seul au réveil. Appelé par <see cref="OnPowerModeChanged"/>, et par le banc d'essai.
+    /// </summary>
+    internal void StopForSuspend()
+    {
+        if (_run is not { } run)
+        {
+            return;
+        }
+
+        if (_state.Status == RecordingStatus.Countdown)
+        {
+            FinishRun(run, null);
+        }
+        else if (_state.Status == RecordingStatus.Recording && run.Recorder is { } recorder)
+        {
+            _ = StopRunAsync(run);
+
+            // L'enregistreur finit sur ses propres fils : cette attente ne dépend pas du fil de l'interface.
+            recorder.StopAsync().Wait(SuspendWait);
+        }
+    }
+
+    private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)
+    {
+        if (e.Mode != PowerModes.Suspend)
+        {
+            return;
+        }
+
+        // Une exception sortirait dans le fil des événements système et fermerait l'application.
+        try
+        {
+            _dispatcher.Invoke(StopForSuspend, DispatcherPriority.Send, CancellationToken.None, SuspendWait + SuspendWait);
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(exception);
+        }
+    }
+
+    internal static bool SupportedOrFalse(Func<bool> probe)
+    {
+        try
+        {
+            return probe();
+        }
+        catch (Exception exception)
+        {
+            // Une API système absente ou en panne ne doit pas empêcher l'application de démarrer.
+            Debug.WriteLine(exception);
+            return false;
+        }
+    }
 
     private async Task BeginAsync()
     {
@@ -191,6 +255,8 @@ internal sealed class RecordingController
         var run = new Run(_recordedMonitor());
         _run = run;
         var counting = false;
+        SystemEvents.PowerModeChanged += OnPowerModeChanged;
+        run.WatchesPower = true;
 
         try
         {
@@ -200,11 +266,15 @@ internal sealed class RecordingController
             if (!_excludeFromCapture())
             {
                 FinishRun(run, null);
-                _notify(Loc.T("Enregistrement impossible sur ce PC."), null);
+                _notify(Loc.T("Windows refuse de retirer la barre de la vidéo : enregistrement annulé."), null);
                 return;
             }
 
-            var captureFolder = _settings().CaptureFolder;
+            var settings = _settings();
+            var captureFolder = settings.CaptureFolder;
+
+            // Lu une seule fois : le décompte annonce le son que la vidéo aura vraiment.
+            run.Audio = settings.RecordingAudio;
             run.Folder = string.IsNullOrWhiteSpace(captureFolder) ? CaptureDelivery.DefaultFolder : captureFolder;
 
             // Un dossier réseau peut répondre lentement : l'interface n'attend pas. Une commande peut annuler pendant ce temps.
@@ -216,13 +286,7 @@ internal sealed class RecordingController
                 return;
             }
 
-            if (prepared.Error is { } error)
-            {
-                FinishRun(run, null);
-                MessageWindow.Show(Loc.T("Le dossier des vidéos n'a pas pu être créé : {0}", error));
-                return;
-            }
-
+            // La place d'abord : sur un disque plein, le dossier refuse aussi le fichier d'essai, et ce message-ci dit la vraie cause.
             if (RecordingRules.ShouldStopForDisk(prepared.FreeBytes))
             {
                 FinishRun(run, null);
@@ -230,9 +294,16 @@ internal sealed class RecordingController
                 return;
             }
 
-            run.Path = prepared.Path!;
+            if (prepared.Path is null)
+            {
+                FinishRun(run, null);
+                MessageWindow.Show(Loc.T("Dossier de capture inaccessible."));
+                return;
+            }
+
+            run.Path = prepared.Path;
             run.Remaining = CountdownSeconds;
-            run.Countdown = new RecordingCountdownWindow(run.Monitor, CountdownSeconds);
+            run.Countdown = new RecordingCountdownWindow(run.Monitor, CountdownSeconds, run.Audio);
             run.Countdown.Show();
             _ticker.Start();
             counting = true;
@@ -252,11 +323,16 @@ internal sealed class RecordingController
         try
         {
             Directory.CreateDirectory(folder);
-            return new Prepared(RecordingRules.FilePath(folder, DateTime.Now, File.Exists), Win32.FreeBytes(folder), null);
+            var free = Win32.FreeBytes(folder);
+
+            return RecordingFile.IsWritableFolder(folder)
+                ? new Prepared(RecordingRules.FilePath(folder, DateTime.Now, File.Exists), free)
+                : new Prepared(null, free);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
-            return new Prepared(null, null, exception.Message);
+            Debug.WriteLine(exception);
+            return new Prepared(null, null);
         }
     }
 
@@ -293,10 +369,15 @@ internal sealed class RecordingController
             // Dès maintenant, l'état est « en cours » : une commande arrive à StopAsync, sans effet de bord pendant le démarrage.
             var recorder = new ScreenRecorder();
             run.Recorder = recorder;
+            RecorderCreated?.Invoke(recorder);
             recorder.Ended += reason => _dispatcher.BeginInvoke(() => OnEnded(run, reason));
             _diskTimer.Start();
 
-            await recorder.StartAsync(run.Monitor, run.Path, _settings().RecordingAudio);
+            // Le réglage de veille de Windows ne doit pas couper une vidéo : levé à la fin de l'essai, sur ce même fil.
+            Win32.KeepAwake(true);
+            run.KeepsAwake = true;
+
+            await recorder.StartAsync(run.Monitor, run.Path, run.Audio);
         }
         catch (Exception exception)
         {
@@ -312,6 +393,12 @@ internal sealed class RecordingController
             run.Clock.Start();
             _ticker.Start();
             DisplayChanged?.Invoke();
+
+            // Tout de suite : découvrir à la fin qu'une longue vidéo est muette serait trop tard. La fin le redira.
+            if (RecordingRules.StartSoundMessage(run.Recorder!.AudioProblem) is { } sound)
+            {
+                _notify(Loc.T(sound), null);
+            }
         }
     }
 
@@ -392,6 +479,16 @@ internal sealed class RecordingController
             _run = null;
             run.Finished.TrySetResult();
 
+            if (run.KeepsAwake)
+            {
+                Win32.KeepAwake(false);
+            }
+
+            if (run.WatchesPower)
+            {
+                SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+            }
+
             try
             {
                 if (run.HoldsExclusion)
@@ -410,39 +507,43 @@ internal sealed class RecordingController
 
     private void NotifyEnd(Run run, RecordingEndReason reason)
     {
-        var path = run.Recorder?.SavedPath;
+        var recorder = run.Recorder;
+        var path = recorder?.SavedPath;
 
-        if (FormatEnd(reason, path, run.Recorder?.AudioProblem ?? RecordingAudioProblem.None) is { } message)
+        if (FormatEnd(reason, path, recorder?.AudioProblem ?? RecordingAudioProblem.None, recorder?.MayBeIncomplete ?? false) is { } message)
         {
-            _notify(message, ShowFile(path));
+            _notify(message, ShowFile(recorder, path));
         }
 
-        if (reason == RecordingEndReason.Failed && path is null && run.Recorder is { } recorder)
+        // Après un abandon, l'encodeur peut encore finir : le fichier annoncé peut alors changer de nom, ou apparaître.
+        if (reason == RecordingEndReason.Failed && recorder is not null && (path is null || recorder.MayBeIncomplete))
         {
-            _ = ReportLateFileAsync(recorder);
+            _ = ReportLateFileAsync(recorder, path);
         }
     }
 
-    private async Task ReportLateFileAsync(ScreenRecorder recorder)
+    private async Task ReportLateFileAsync(ScreenRecorder recorder, string? announced)
     {
         await Task.Delay(LateFileCheck);
 
-        if (!_close.IsQuiet && recorder.SavedPath is { } path && FormatEnd(RecordingEndReason.Failed, path, recorder.AudioProblem) is { } message)
+        if (!_close.IsQuiet && recorder.SavedPath is { } path && path != announced && FormatEnd(RecordingEndReason.Failed, path, recorder.AudioProblem, recorder.MayBeIncomplete) is { } message)
         {
-            _notify(message, ShowFile(path));
+            _notify(message, ShowFile(recorder, path));
         }
     }
 
     // Le nom seul : le chemin complet déborderait de la notification, et le clic montre le dossier.
-    private static string? FormatEnd(RecordingEndReason reason, string? path, RecordingAudioProblem audio)
+    private static string? FormatEnd(RecordingEndReason reason, string? path, RecordingAudioProblem audio, bool mayBeIncomplete)
     {
-        var keys = RecordingRules.EndMessages(reason, path is not null, audio);
+        var keys = RecordingRules.EndMessages(reason, path is not null, audio, mayBeIncomplete);
         var name = Path.GetFileName(path) ?? string.Empty;
 
         return keys.Count == 0 ? null : string.Join("\n", keys.Select(key => Loc.T(key, name)));
     }
 
-    private static Action? ShowFile(string? path) => path is null ? null : () => CaptureDelivery.ShowInExplorer(path);
+    // Lu au clic : le « .tmp » annoncé a pu prendre son nom final entre-temps.
+    private static Action? ShowFile(ScreenRecorder? recorder, string? path) =>
+        path is null ? null : () => CaptureDelivery.ShowInExplorer(recorder?.SavedPath ?? path);
 
     private static void CloseCountdown(Run run)
     {
@@ -456,7 +557,8 @@ internal sealed class RecordingController
         _diskTimer.Stop();
     }
 
-    private readonly record struct Prepared(string? Path, long? FreeBytes, string? Error);
+    // Sans chemin, le dossier est inaccessible.
+    private readonly record struct Prepared(string? Path, long? FreeBytes);
 
     /// <summary>Un essai : du lancement du décompte à la fin de la vidéo.</summary>
     private sealed class Run(MonitorArea monitor)
@@ -479,6 +581,12 @@ internal sealed class RecordingController
         public ScreenRecorder? Recorder { get; set; }
 
         public RecordingEndReason? ForcedReason { get; set; }
+
+        public RecordingAudio Audio { get; set; }
+
+        public bool KeepsAwake { get; set; }
+
+        public bool WatchesPower { get; set; }
 
         public bool HoldsExclusion { get; set; }
 

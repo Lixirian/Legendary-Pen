@@ -65,6 +65,11 @@ internal sealed class AudioSource : IDisposable
     /// <summary>Ouvre le périphérique et commence à capter. Null s'il est absent, refusé ou bloqué : la vidéo se fera sans son.</summary>
     public static AudioSource? TryStart(RecordingAudio kind, RecorderProbes probes)
     {
+        if (kind is not (RecordingAudio.System or RecordingAudio.Microphone))
+        {
+            return null;
+        }
+
         var source = new AudioSource(kind, probes);
         var thread = new Thread(source.Run) { IsBackground = true, Name = "Legendary Pen audio capture" };
         thread.SetApartmentState(ApartmentState.MTA);
@@ -180,12 +185,19 @@ internal sealed class AudioSource : IDisposable
 
     private void Open()
     {
+        // Le micro ne s'ouvre que sur un choix explicite : jamais par défaut, quelle que soit la valeur reçue.
+        var flow = _kind switch
+        {
+            RecordingAudio.System => DataFlow.Render,
+            RecordingAudio.Microphone => DataFlow.Capture,
+            _ => throw new InvalidOperationException("Unknown sound source."),
+        };
+        var isLoopback = flow == DataFlow.Render;
         var enumerator = (IDeviceEnumerator)new DeviceEnumerator();
-        var isLoopback = _kind == RecordingAudio.System;
 
         try
         {
-            Check(enumerator.GetDefaultAudioEndpoint(isLoopback ? DataFlow.Render : DataFlow.Capture, Role.Console, out var device));
+            Check(enumerator.GetDefaultAudioEndpoint(flow, Role.Console, out var device));
 
             try
             {
@@ -250,7 +262,19 @@ internal sealed class AudioSource : IDisposable
                 return;
             }
 
-            var result = capture.GetBuffer(out var data, out var frames, out var flags, out _, out var time);
+            nint data = 0;
+            uint frames = 0;
+            var flags = 0;
+            ulong time = 0;
+            var forced = _probes.AudioBufferResult?.Invoke() ?? 0;
+            var result = forced != 0 ? forced : capture.GetBuffer(out data, out frames, out flags, out _, out time);
+
+            // Tampon momentanément occupé : aucun tampon n'a été remis, la prochaine lecture le reprendra.
+            if (RecordingRules.IsTemporaryAudioBufferError(result))
+            {
+                return;
+            }
+
             Check(result);
 
             if (result == BufferEmpty)

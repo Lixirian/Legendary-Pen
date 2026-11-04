@@ -28,6 +28,7 @@ public sealed partial class LocalizationTests : IDisposable
         "Loupe indisponible : {exception.Message}",
         "Saved layers are inconsistent, keeping the current stack: {exception.Message}",
         "The click hook thread did not stop in time.",
+        "Unknown sound source.",
         "Legendary Pen audio capture",
         "Legendary Pen video samples",
         "Legendary Pen audio samples",

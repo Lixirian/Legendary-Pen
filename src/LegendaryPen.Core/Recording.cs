@@ -162,9 +162,10 @@ public static class RecordingRules
     /// Textes français, clés de <see cref="Loc"/>, de la notification de fin, ligne par ligne. {0} est le fichier.
     /// Un arrêt demandé qui n'a rien écrit ne dit rien : il n'y a rien à annoncer.
     /// </summary>
-    public static IReadOnlyList<string> EndMessages(RecordingEndReason reason, bool hasFile, RecordingAudioProblem audio = RecordingAudioProblem.None)
+    /// <param name="mayBeIncomplete">Le fichier gardé n'a pas pu être confirmé comme une vidéo finie.</param>
+    public static IReadOnlyList<string> EndMessages(RecordingEndReason reason, bool hasFile, RecordingAudioProblem audio = RecordingAudioProblem.None, bool mayBeIncomplete = false)
     {
-        var lines = EndOfVideoMessages(reason, hasFile);
+        var lines = EndOfVideoMessages(reason, hasFile, mayBeIncomplete);
 
         // Sans vidéo, le son n'a plus d'importance.
         var soundLine = audio switch
@@ -178,10 +179,31 @@ public static class RecordingRules
         return hasFile && soundLine is not null ? [.. lines, soundLine] : lines;
     }
 
-    private static IReadOnlyList<string> EndOfVideoMessages(RecordingEndReason reason, bool hasFile)
+    /// <summary>Annonce immédiate, clé de <see cref="Loc"/>, d'une source de son absente au démarrage ; null s'il n'y a rien à dire.</summary>
+    public static string? StartSoundMessage(RecordingAudioProblem audio)
+    {
+        return audio switch
+        {
+            RecordingAudioProblem.MicrophoneUnavailable => "Micro indisponible : cette vidéo se fait sans son.",
+            RecordingAudioProblem.SystemSoundUnavailable => "Son de l'ordinateur indisponible : cette vidéo se fait sans son.",
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// Vrai pour AUDCLNT_E_BUFFER_ERROR et AUDCLNT_E_BUFFER_OPERATION_PENDING : le tampon de capture est momentanément occupé,
+    /// et la lecture suivante le retrouvera. Toute autre erreur reste une perte du périphérique.
+    /// </summary>
+    public static bool IsTemporaryAudioBufferError(int result) => result is unchecked((int)0x88890018) or unchecked((int)0x8889000B);
+
+    private static IReadOnlyList<string> EndOfVideoMessages(RecordingEndReason reason, bool hasFile, bool mayBeIncomplete)
     {
         return (reason, hasFile) switch
         {
+            (RecordingEndReason.Requested or RecordingEndReason.Failed, true) when mayBeIncomplete => ["La vidéo est peut-être incomplète. Fichier gardé : {0}"],
+            (RecordingEndReason.MonitorClosed, true) when mayBeIncomplete => ["L'écran enregistré a été débranché.", "La vidéo est peut-être incomplète. Fichier gardé : {0}"],
+            (RecordingEndReason.ScreenChanged, true) when mayBeIncomplete => ["La résolution de l'écran a changé : enregistrement arrêté.", "La vidéo est peut-être incomplète. Fichier gardé : {0}"],
+            (RecordingEndReason.DiskFull, true) when mayBeIncomplete => ["Plus assez de place sur le disque : enregistrement arrêté.", "La vidéo est peut-être incomplète. Fichier gardé : {0}"],
             (RecordingEndReason.Requested, true) => ["Vidéo enregistrée : {0}"],
             (RecordingEndReason.MonitorClosed, true) => ["L'écran enregistré a été débranché.", "Vidéo enregistrée : {0}"],
             (RecordingEndReason.MonitorClosed, false) => ["L'écran enregistré a été débranché."],
@@ -190,10 +212,11 @@ public static class RecordingRules
             (RecordingEndReason.DiskFull, true) => ["Plus assez de place sur le disque : enregistrement arrêté.", "Vidéo enregistrée : {0}"],
             (RecordingEndReason.DiskFull, false) => ["Plus assez de place sur le disque : enregistrement arrêté."],
             (RecordingEndReason.Failed, true) => ["L'enregistrement s'est arrêté sur une erreur. Vidéo gardée : {0}"],
-            (RecordingEndReason.Failed, false) => ["Enregistrement impossible sur ce PC."],
+            (RecordingEndReason.Failed, false) => ["L'enregistrement a échoué : aucune vidéo gardée."],
             _ => [],
         };
     }
+
 
     /// <summary>Débit vidéo : 8 Mb/s en 2560 x 1440, proportionnel à la surface, entre 2 et 40 Mb/s.</summary>
     public static int VideoBitRate(int width, int height)

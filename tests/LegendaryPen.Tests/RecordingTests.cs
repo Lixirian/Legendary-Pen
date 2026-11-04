@@ -259,7 +259,7 @@ public class RecordingTests
     [InlineData(RecordingEndReason.DiskFull, true, "Plus assez de place sur le disque : enregistrement arrêté.|Vidéo enregistrée : {0}")]
     [InlineData(RecordingEndReason.DiskFull, false, "Plus assez de place sur le disque : enregistrement arrêté.")]
     [InlineData(RecordingEndReason.Failed, true, "L'enregistrement s'est arrêté sur une erreur. Vidéo gardée : {0}")]
-    [InlineData(RecordingEndReason.Failed, false, "Enregistrement impossible sur ce PC.")]
+    [InlineData(RecordingEndReason.Failed, false, "L'enregistrement a échoué : aucune vidéo gardée.")]
     public void Each_end_of_recording_has_its_message(RecordingEndReason reason, bool hasFile, string expected)
     {
         Assert.Equal(expected.Split('|'), RecordingRules.EndMessages(reason, hasFile));
@@ -430,5 +430,98 @@ public class RecordingTests
         latch.Leave(RecordingClose.SessionEnd);
         Assert.True(latch.RefusesStart);
         Assert.False(latch.IsQuiet);
+    }
+
+    [Theory]
+    [InlineData(RecordingEndReason.Requested, "La vidéo est peut-être incomplète. Fichier gardé : {0}")]
+    [InlineData(RecordingEndReason.Failed, "La vidéo est peut-être incomplète. Fichier gardé : {0}")]
+    [InlineData(RecordingEndReason.MonitorClosed, "L'écran enregistré a été débranché.|La vidéo est peut-être incomplète. Fichier gardé : {0}")]
+    [InlineData(RecordingEndReason.ScreenChanged, "La résolution de l'écran a changé : enregistrement arrêté.|La vidéo est peut-être incomplète. Fichier gardé : {0}")]
+    [InlineData(RecordingEndReason.DiskFull, "Plus assez de place sur le disque : enregistrement arrêté.|La vidéo est peut-être incomplète. Fichier gardé : {0}")]
+    public void A_kept_file_that_may_be_incomplete_says_so(RecordingEndReason reason, string expected)
+    {
+        Assert.Equal(expected.Split('|'), RecordingRules.EndMessages(reason, true, mayBeIncomplete: true));
+    }
+
+    [Fact]
+    public void Without_a_file_there_is_nothing_to_call_incomplete()
+    {
+        Assert.Equal(["L'enregistrement a échoué : aucune vidéo gardée."], RecordingRules.EndMessages(RecordingEndReason.Failed, false, mayBeIncomplete: true));
+    }
+
+    [Fact]
+    public void The_new_end_messages_are_translated()
+    {
+        Assert.Equal("The recording failed: no video was kept.", Translations.English["L'enregistrement a échoué : aucune vidéo gardée."]);
+        Assert.Equal("The video may be incomplete. File kept: {0}", Translations.English["La vidéo est peut-être incomplète. Fichier gardé : {0}"]);
+    }
+
+    [Theory]
+    [InlineData(RecordingAudioProblem.MicrophoneUnavailable, "Micro indisponible : cette vidéo se fait sans son.")]
+    [InlineData(RecordingAudioProblem.SystemSoundUnavailable, "Son de l'ordinateur indisponible : cette vidéo se fait sans son.")]
+    public void A_missing_sound_source_is_announced_at_the_start(RecordingAudioProblem problem, string expected)
+    {
+        Assert.Equal(expected, RecordingRules.StartSoundMessage(problem));
+        Assert.True(Translations.English.ContainsKey(expected));
+    }
+
+    [Theory]
+    [InlineData(RecordingAudioProblem.None)]
+    [InlineData(RecordingAudioProblem.Interrupted)]
+    public void Nothing_else_about_sound_is_announced_at_the_start(RecordingAudioProblem problem)
+    {
+        Assert.Null(RecordingRules.StartSoundMessage(problem));
+    }
+
+    [Theory]
+    [InlineData(unchecked((int)0x88890018), true)]
+    [InlineData(unchecked((int)0x8889000B), true)]
+    [InlineData(unchecked((int)0x88890004), false)]
+    [InlineData(unchecked((int)0x80004005), false)]
+    [InlineData(0, false)]
+    public void Only_a_busy_sound_buffer_is_skipped_until_the_next_poll(int result, bool expected)
+    {
+        Assert.Equal(expected, RecordingRules.IsTemporaryAudioBufferError(result));
+    }
+
+    [Theory]
+    [InlineData(3)]
+    [InlineData(-1)]
+    public void An_unknown_sound_setting_loads_as_no_sound(int value)
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json");
+
+        try
+        {
+            File.WriteAllText(path, $"{{ \"Version\": 1, \"PressureEnabled\": false, \"RecordingAudio\": {value} }}");
+
+            var settings = new SettingsStore(path).Load();
+
+            Assert.Equal(RecordingAudio.None, settings.RecordingAudio);
+            Assert.False(settings.PressureEnabled);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(1, RecordingAudio.System)]
+    [InlineData(2, RecordingAudio.Microphone)]
+    public void A_known_sound_setting_loads_unchanged(int value, RecordingAudio expected)
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".json");
+
+        try
+        {
+            File.WriteAllText(path, $"{{ \"RecordingAudio\": {value} }}");
+
+            Assert.Equal(expected, new SettingsStore(path).Load().RecordingAudio);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 }

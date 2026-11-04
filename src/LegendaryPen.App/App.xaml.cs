@@ -299,7 +299,7 @@ public partial class App : Application
     private void ShowRecording()
     {
         var recording = _recording!;
-        _toolbar!.ShowRecording(recording.IsFilming, recording.ElapsedText, recording.CommandText, recording.CanCommand);
+        _toolbar!.ShowRecording(recording.IsFilming, recording.ElapsedText, recording.CommandText, recording.CanCommand, recording.IsActive);
     }
 
     private (string Text, bool Enabled) RecordMenuState()

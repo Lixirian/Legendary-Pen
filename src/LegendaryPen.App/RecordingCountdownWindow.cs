@@ -13,7 +13,7 @@ internal sealed class RecordingCountdownWindow : Window
     private readonly MonitorArea _monitor;
     private readonly TextBlock _digit;
 
-    public RecordingCountdownWindow(MonitorArea monitor, int seconds)
+    public RecordingCountdownWindow(MonitorArea monitor, int seconds, RecordingAudio audio)
     {
         _monitor = monitor;
 
@@ -45,6 +45,28 @@ internal sealed class RecordingCountdownWindow : Window
             HorizontalAlignment = HorizontalAlignment.Center,
             Text = Loc.T("L'enregistrement va commencer"),
         });
+
+        // Le micro surtout : on doit savoir, avant le début, ce qui sera enregistré.
+        var sound = audio switch
+        {
+            RecordingAudio.Microphone => Loc.T("Avec le micro"),
+            RecordingAudio.System => Loc.T("Avec le son de l'ordinateur"),
+            _ => null,
+        };
+
+        if (sound is not null)
+        {
+            panel.Children.Add(new TextBlock
+            {
+                FontFamily = new FontFamily("Segoe UI"),
+                FontSize = 16,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = (Brush)FindResource("TextBrush"),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 4, 0, 0),
+                Text = sound,
+            });
+        }
 
         Content = new Border
         {

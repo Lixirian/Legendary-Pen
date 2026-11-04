@@ -186,6 +186,14 @@ internal static partial class Win32
     /// <summary>
     /// Espace libre pour cet utilisateur sur le disque du dossier, réseau compris ; null si Windows ne répond pas.
     /// </summary>
+    /// <summary>Empêche la veille et l'extinction de l'écran, ou lève cette demande. Vaut pour le fil appelant : à lever sur le même fil.</summary>
+    public static void KeepAwake(bool awake)
+    {
+        const uint Continuous = 0x80000000, SystemRequired = 0x00000001, DisplayRequired = 0x00000002;
+
+        SetThreadExecutionState(awake ? Continuous | SystemRequired | DisplayRequired : Continuous);
+    }
+
     public static long? FreeBytes(string folder)
     {
         // Windows exige la barre finale pour un dossier réseau.
@@ -556,6 +564,9 @@ internal static partial class Win32
 
     [LibraryImport("kernel32.dll")]
     private static partial uint GetCurrentThreadId();
+
+    [LibraryImport("kernel32.dll")]
+    private static partial uint SetThreadExecutionState(uint flags);
 
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
