@@ -250,6 +250,7 @@ public static class Translations
         ["Arrêter l'enregistrement"] = "Stop recording",
         ["Annuler le décompte"] = "Cancel the countdown",
         ["Finalisation de la vidéo…"] = "Finishing the video…",
+        ["Finalisation de la vidéo"] = "Finishing the video",
         ["L'enregistrement va commencer"] = "Recording is about to start",
         ["Vidéo enregistrée : {0}"] = "Video saved: {0}",
         ["Plus assez de place sur le disque : enregistrement arrêté."] = "Not enough disk space: recording stopped.",

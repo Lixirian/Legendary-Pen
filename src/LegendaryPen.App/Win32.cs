@@ -12,6 +12,7 @@ public sealed record MonitorArea(string DeviceName, PixelRect Bounds, PixelRect 
 internal static partial class Win32
 {
     public const int WmActivate = 0x0006;
+    public const int WmQueryEndSession = 0x0011;
     public const int WmWindowPosChanging = 0x0046;
     public const int WmHotKey = 0x0312;
     public const int WmDpiChanged = 0x02E0;
@@ -193,6 +194,11 @@ internal static partial class Win32
             ? (long)Math.Min(free, long.MaxValue)
             : null;
     }
+
+    /// <summary>Demande à Windows de patienter à la fin de session, avec la raison affichée. Faux si Windows refuse.</summary>
+    public static bool BlockShutdown(IntPtr window, string reason) => ShutdownBlockReasonCreate(window, reason);
+
+    public static void AllowShutdown(IntPtr window) => ShutdownBlockReasonDestroy(window);
 
     /// <summary>Attend que l'écran ait été recomposé.</summary>
     public static void WaitForComposition() => DwmFlush();
@@ -433,6 +439,14 @@ internal static partial class Win32
     [LibraryImport("kernel32.dll", StringMarshalling = StringMarshalling.Utf16)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool GetDiskFreeSpaceExW(string directory, out ulong freeToCaller, out ulong total, out ulong totalFree);
+
+    [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool ShutdownBlockReasonCreate(IntPtr window, string reason);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool ShutdownBlockReasonDestroy(IntPtr window);
 
     [LibraryImport("dwmapi.dll")]
     private static partial int DwmFlush();

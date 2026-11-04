@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Windows.Threading;
 using LegendaryPen.Core;
@@ -20,6 +21,8 @@ internal sealed class RecordingController
     // Après un abandon, l'encodeur peut encore finir et rendre une vidéo : l'enregistreur le dit alors dans SavedPath.
     private static readonly TimeSpan LateFileCheck = TimeSpan.FromSeconds(30);
 
+    private static readonly TimeSpan EndedGrace = TimeSpan.FromSeconds(1);
+
     private readonly RecordingState _state;
     private readonly Dispatcher _dispatcher;
     private readonly Func<MonitorArea> _recordedMonitor;
@@ -34,6 +37,9 @@ internal sealed class RecordingController
 
     // À la fermeture, l'icône de notification n'existe plus : plus aucun message.
     private bool _quiet;
+
+    // L'application se ferme ou va s'installer : une commande encore en file ne doit pas relancer une vidéo.
+    private bool _closing;
 
     /// <param name="recordedMonitor">L'écran à enregistrer, lu au moment de la commande.</param>
     /// <param name="excludeFromCapture">Retire la barre et son panneau des captures ; faux si Windows refuse. À équilibrer par <paramref name="restoreCapture"/>, même après un refus.</param>
@@ -67,6 +73,9 @@ internal sealed class RecordingController
     public bool IsSupported { get; }
 
     public bool IsActive => _state.Status != RecordingStatus.Idle;
+
+    /// <summary>Vrai dès que la capture filme vraiment, et jusqu'à la fin de la vidéo ; le démarrage peut durer 15 s.</summary>
+    public bool IsFilming => _run?.Clock is { } clock && (clock.IsRunning || clock.Elapsed > TimeSpan.Zero);
 
     public RecordingStatus Status => _state.Status;
 
@@ -117,12 +126,16 @@ internal sealed class RecordingController
     }
 
     /// <summary>
-    /// Arrête ce qui tourne et attend le fichier final, 15 s au plus, sans message : l'application va se fermer.
-    /// Ne compte pas sur <see cref="ScreenRecorder.Ended"/>, qui passe par le fil de l'interface.
+    /// Arrête ce qui tourne et attend le fichier final, 15 s au plus. Plus rien ne démarre ensuite, sauf après <see cref="ReopenAfterAbandonedUpdate"/>.
     /// </summary>
-    public async Task StopAndWaitAsync()
+    /// <param name="quiet">
+    /// Fermeture de l'application : aucun message, et aucune dépendance à <see cref="ScreenRecorder.Ended"/>, qui passe par le fil de l'interface.
+    /// Sinon, le message de fin part comme d'habitude : une mise à jour peut encore échouer ou être annulée.
+    /// </param>
+    public async Task StopAndWaitAsync(bool quiet = false)
     {
-        _quiet = true;
+        _closing = true;
+        _quiet |= quiet;
 
         if (_run is not { } run)
         {
@@ -136,20 +149,40 @@ internal sealed class RecordingController
         }
 
         StopTimers();
+        run.Clock.Stop();
         _state.RequestStop();
 
         // Hors du fil de l'interface : la fermeture de l'application attend ce résultat en faisant tourner ses messages.
+        var stopped = false;
+
         if (run.Recorder is { } recorder)
         {
-            await Task.WhenAny(recorder.StopAsync(), Task.Delay(StopLimit)).ConfigureAwait(false);
+            var stopping = recorder.StopAsync();
+            stopped = await Task.WhenAny(stopping, Task.Delay(StopLimit)).ConfigureAwait(false) == stopping;
         }
 
-        await _dispatcher.InvokeAsync(() => FinishRun(run, null));
+        // Ended donne la vraie raison, juste après la fin de l'arrêt. S'il ne vient pas, l'échec est la seule réponse honnête.
+        if (!_quiet && stopped)
+        {
+            await Task.WhenAny(run.Finished.Task, Task.Delay(EndedGrace)).ConfigureAwait(false);
+        }
+
+        await _dispatcher.InvokeAsync(() => FinishRun(run, _quiet ? null : run.ForcedReason ?? RecordingEndReason.Failed));
+    }
+
+    /// <summary>La mise à jour est annulée ou n'a pas démarré : l'application continue, on peut de nouveau enregistrer.</summary>
+    public void ReopenAfterAbandonedUpdate()
+    {
+        // Si l'application se ferme entre-temps, le verrou reste.
+        _closing = _quiet;
     }
 
     private async Task BeginAsync()
     {
-        _quiet = false;
+        if (_closing)
+        {
+            return;
+        }
 
         if (!IsSupported)
         {
@@ -258,22 +291,24 @@ internal sealed class RecordingController
     private async Task StartRecordingAsync(Run run)
     {
         _ticker.Stop();
-        CloseCountdown(run);
-        _state.CountdownElapsed();
-
-        // Dès maintenant, l'état est « en cours » : une commande arrive à StopAsync, sans effet de bord pendant le démarrage.
-        var recorder = new ScreenRecorder();
-        run.Recorder = recorder;
-        recorder.Ended += reason => _dispatcher.BeginInvoke(() => OnEnded(run, reason));
-        _diskTimer.Start();
 
         try
         {
+            CloseCountdown(run);
+            _state.CountdownElapsed();
+
+            // Dès maintenant, l'état est « en cours » : une commande arrive à StopAsync, sans effet de bord pendant le démarrage.
+            var recorder = new ScreenRecorder();
+            run.Recorder = recorder;
+            recorder.Ended += reason => _dispatcher.BeginInvoke(() => OnEnded(run, reason));
+            _diskTimer.Start();
+
             await recorder.StartAsync(run.Monitor, run.Path, _settings().RecordingAudio);
         }
-        catch (InvalidOperationException)
+        catch (Exception exception)
         {
-            // Plus pris en charge depuis le lancement : l'enregistreur ne préviendra pas, il n'a pas démarré.
+            // L'enregistreur n'a pas démarré et ne préviendra pas : personne d'autre ne débloquerait l'état.
+            Debug.WriteLine(exception);
             OnEnded(run, RecordingEndReason.Failed);
             return;
         }
@@ -296,15 +331,25 @@ internal sealed class RecordingController
 
         // Un dossier réseau perdu peut bloquer la requête : jamais sur le fil de l'interface, et une seule à la fois.
         run.CheckingDisk = true;
-        var folder = run.Folder;
-        var free = await Task.Run(() => Win32.FreeBytes(folder));
-        run.CheckingDisk = false;
 
-        // Une requête en échec ne dit rien de la place : on continue, et on réessaiera.
-        if (ReferenceEquals(_run, run) && _state.Status == RecordingStatus.Recording && RecordingRules.ShouldStopForDisk(free))
+        // Méthode async void : une exception qui en sortirait fermerait l'application.
+        try
         {
-            run.ForcedReason = RecordingEndReason.DiskFull;
-            await StopRunAsync(run);
+            var folder = run.Folder;
+            var free = await Task.Run(() => Win32.FreeBytes(folder));
+            run.CheckingDisk = false;
+
+            // Une requête en échec ne dit rien de la place : on continue, et on réessaiera.
+            if (ReferenceEquals(_run, run) && _state.Status == RecordingStatus.Recording && RecordingRules.ShouldStopForDisk(free))
+            {
+                run.ForcedReason = RecordingEndReason.DiskFull;
+                await StopRunAsync(run);
+            }
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine(exception);
+            run.CheckingDisk = false;
         }
     }
 
@@ -314,7 +359,17 @@ internal sealed class RecordingController
         StopTimers();
         run.Clock.Stop();
         _state.RequestStop();
-        await run.Recorder!.StopAsync();
+
+        try
+        {
+            await run.Recorder!.StopAsync();
+        }
+        catch (Exception exception)
+        {
+            // Ended ne viendrait peut-être jamais : l'état ne doit pas rester bloqué.
+            Debug.WriteLine(exception);
+            OnEnded(run, RecordingEndReason.Failed);
+        }
     }
 
     private void OnEnded(Run run, RecordingEndReason reason) => FinishRun(run, run.ForcedReason ?? reason);
@@ -342,6 +397,7 @@ internal sealed class RecordingController
         finally
         {
             _run = null;
+            run.Finished.TrySetResult();
 
             try
             {
@@ -414,7 +470,10 @@ internal sealed class RecordingController
     {
         public MonitorArea Monitor { get; } = monitor;
 
-        public System.Diagnostics.Stopwatch Clock { get; } = new();
+        public Stopwatch Clock { get; } = new();
+
+        /// <summary>L'essai est clos, message envoyé.</summary>
+        public TaskCompletionSource Finished { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public string Folder { get; set; } = string.Empty;
 

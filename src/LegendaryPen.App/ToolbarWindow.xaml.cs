@@ -150,6 +150,12 @@ public partial class ToolbarWindow : Window
     /// <summary>À attendre avant de lancer l'installateur : il remplace l'application, une vidéo en cours doit être finie.</summary>
     public Func<Task>? BeforeUpdateInstall { get; set; }
 
+    /// <summary>La mise à jour est annulée ou l'installateur n'a pas démarré : l'application continue.</summary>
+    public Action? UpdateAbandoned { get; set; }
+
+    /// <summary>Windows demande à fermer : à traiter avant de répondre, le processus peut être tué juste après.</summary>
+    public event Action? SessionEndRequested;
+
     /// <summary>Fenêtre sous laquelle les overlays se tiennent : le panneau des calques quand il est ouvert, sinon la barre.</summary>
     public event Action<IntPtr>? OverlayAnchorChanged;
 
@@ -248,7 +254,7 @@ public partial class ToolbarWindow : Window
     {
         if (_availableUpdate is { } manifest && _updates is not null && !_dialogOpen)
         {
-            RunDialog(() => new UpdateWindow(manifest, _updates, BeforeUpdateInstall).ShowDialog());
+            RunDialog(() => new UpdateWindow(manifest, _updates, BeforeUpdateInstall, UpdateAbandoned).ShowDialog());
         }
     }
 
@@ -925,10 +931,8 @@ public partial class ToolbarWindow : Window
     }
 
     /// <summary>Montre l'état de l'enregistrement sur le bouton : rouge avec la durée une fois lancé.</summary>
-    public void ShowRecording(RecordingStatus status, string elapsed, string command, bool enabled)
+    public void ShowRecording(bool filming, string elapsed, string command, bool enabled)
     {
-        var filming = status is RecordingStatus.Recording or RecordingStatus.Finishing;
-
         _recordText = command;
         _recordEnabled = enabled;
         RecordButton.IsEnabled = enabled;
@@ -993,6 +997,13 @@ public partial class ToolbarWindow : Window
             SetCollapsed(false);
             _layersWindow?.Raise();
             Win32.BringToTop(_handle);
+            return IntPtr.Zero;
+        }
+
+        // Sans « handled », la réponse reste celle de Windows : on accepte de fermer, une fois la vidéo finie.
+        if (message == Win32.WmQueryEndSession)
+        {
+            SessionEndRequested?.Invoke();
             return IntPtr.Zero;
         }
 

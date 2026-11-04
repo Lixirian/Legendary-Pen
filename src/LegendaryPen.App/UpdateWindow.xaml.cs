@@ -12,10 +12,13 @@ public partial class UpdateWindow : Window
     private readonly UpdateService _updates;
     private readonly CancellationTokenSource _cancellation = new();
     private readonly Func<Task>? _beforeInstall;
+    private readonly Action? _abandoned;
 
     /// <param name="beforeInstall">À attendre avant de lancer l'installateur, s'il y a une vidéo à finir.</param>
-    public UpdateWindow(UpdateManifest manifest, UpdateService updates, Func<Task>? beforeInstall = null)
+    /// <param name="abandoned">Prévient que l'installateur ne démarrera pas : l'application continue.</param>
+    public UpdateWindow(UpdateManifest manifest, UpdateService updates, Func<Task>? beforeInstall = null, Action? abandoned = null)
     {
+        _abandoned = abandoned;
         _manifest = manifest;
         _updates = updates;
         _beforeInstall = beforeInstall;
@@ -57,11 +60,13 @@ public partial class UpdateWindow : Window
         catch (OperationCanceledException) when (_cancellation.IsCancellationRequested)
         {
             // Fermeture demandée pendant le téléchargement : rien à signaler.
+            _abandoned?.Invoke();
         }
         catch (Exception exception) when (exception is HttpRequestException or IOException or UnauthorizedAccessException
                                               or InvalidDataException or OperationCanceledException
                                               or System.ComponentModel.Win32Exception)
         {
+            _abandoned?.Invoke();
             DownloadProgress.Visibility = Visibility.Collapsed;
             ErrorText.Text = Loc.T("La mise à jour a échoué : {0}", exception.Message);
             ErrorText.Visibility = Visibility.Visible;

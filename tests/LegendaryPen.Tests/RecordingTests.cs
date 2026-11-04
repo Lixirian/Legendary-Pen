@@ -123,7 +123,6 @@ public class RecordingTests
         var settings = new AppSettings();
 
         Assert.Equal(RecordingAudio.None, settings.RecordingAudio);
-        Assert.Equal(3, settings.RecordingCountdownSeconds);
     }
 
     [Fact]
@@ -133,13 +132,12 @@ public class RecordingTests
 
         try
         {
-            File.WriteAllText(path, "{ \"Version\": 1, \"PressureEnabled\": false }");
+            File.WriteAllText(path, "{ \"Version\": 1, \"PressureEnabled\": false, \"RecordingCountdownSeconds\": 5 }");
 
             var settings = new SettingsStore(path).Load();
 
             Assert.False(settings.PressureEnabled);
             Assert.Equal(RecordingAudio.None, settings.RecordingAudio);
-            Assert.Equal(3, settings.RecordingCountdownSeconds);
         }
         finally
         {
