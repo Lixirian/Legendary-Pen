@@ -204,13 +204,13 @@ internal sealed class AnnotationSurface : Grid
             return;
         }
 
-        foreach (var layer in layers)
+        foreach (var layer in layers.Where(layer => layer is not null))
         {
             RestoreContent(LayerFor(targets[layer.Id]), layer.Strokes, layer.Texts);
         }
     }
 
-    // Un champ absent d'un fichier est lu comme nul : un calque sans traits ou sans textes reste un calque valable.
+    // Un champ absent d'un fichier est lu comme nul : un calque sans traits ou sans textes reste un calque valable, et un texte abîmé prend des valeurs sûres.
     private void RestoreContent(AnnotationLayer target, byte[]? savedStrokes, List<SavedText>? savedTexts)
     {
         if (savedStrokes is { Length: > 0 })
@@ -226,7 +226,7 @@ internal sealed class AnnotationSurface : Grid
             }
         }
 
-        foreach (var item in savedTexts ?? [])
+        foreach (var item in (savedTexts ?? []).Where(text => text is not null).Select(text => text.Repaired()))
         {
             var color = InkColor.TryParse(item.Color, out var parsed) ? parsed : _pen.Color;
             var text = new TextBlock
@@ -342,8 +342,8 @@ internal sealed class AnnotationSurface : Grid
         _activeLayer = active;
         _activeLayer.IsHitTestVisible = true;
 
-        // Sans échelle connue, l'outil n'a encore jamais été appliqué : OverlayWindow.Apply s'en chargera.
-        if (_toolScale is { } scale)
+        // Sans échelle connue, l'outil n'a encore jamais été appliqué. Une surface cachée n'a pas besoin de curseurs : dans les deux cas, OverlayWindow.Apply s'en chargera.
+        if (_toolScale is { } scale && IsVisible)
         {
             ApplyTool(scale);
         }

@@ -255,7 +255,7 @@ public sealed class LayerStackTests : IDisposable
         AssertSameState(state, other.Capture());
     }
 
-    public static TheoryData<string> InvalidStates() => ["empty", "nine", "duplicate", "unknown-active", "hidden-active"];
+    public static TheoryData<string> InvalidStates() => ["empty", "nine", "duplicate", "unknown-active", "hidden-active", "no-layers", "null-layer", "same-number"];
 
     [Theory]
     [MemberData(nameof(InvalidStates))]
@@ -272,6 +272,9 @@ public sealed class LayerStackTests : IDisposable
                 Enumerable.Range(1, 9).Select(n => new LayerInfo(Guid.NewGuid(), n, true)).ToList(), a.Id, 10),
             "duplicate" => new LayerStackState([a, a with { Number = 2 }], a.Id, 3),
             "unknown-active" => new LayerStackState([a, b], Guid.NewGuid(), 3),
+            "no-layers" => new LayerStackState(null!, a.Id, 3),
+            "null-layer" => new LayerStackState([a, null!], a.Id, 3),
+            "same-number" => new LayerStackState([a, b with { Number = 1 }], a.Id, 3),
             _ => new LayerStackState([a with { IsVisible = false }, b], a.Id, 3),
         };
 

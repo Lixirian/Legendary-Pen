@@ -189,12 +189,23 @@ public partial class ToolbarWindow : Window
         {
             _layersWindow?.Hide();
             Hide();
+
+            // Un panneau caché ne peut plus servir de repère aux overlays et aux effets.
+            if (_layersWindow is not null)
+            {
+                OverlayAnchorChanged?.Invoke(_handle);
+            }
         }
         else
         {
             Show();
             _layersWindow?.Show();
             ExpandAndReveal();
+
+            if (_layersWindow is { IsPlaceable: true } panel)
+            {
+                OverlayAnchorChanged?.Invoke(panel.Handle);
+            }
         }
     }
 
@@ -877,6 +888,12 @@ public partial class ToolbarWindow : Window
         if (_layersWindow is { IsPlaceable: true } window)
         {
             window.PlaceBeside(Win32.GetBounds(_handle), EffectiveVertical, DockArea(FindBarMonitor()));
+
+            // Le placement remonte le panneau : la barre repasse au-dessus, et l'ordre reste barre, panneau, overlays.
+            if (!window.IsHiddenForCapture)
+            {
+                Win32.BringToTop(_handle);
+            }
         }
     }
 
@@ -888,9 +905,8 @@ public partial class ToolbarWindow : Window
             return () => { };
         }
 
-        var previous = window.Opacity;
-        window.Opacity = 0;
-        return () => window.Opacity = previous;
+        window.SetHiddenForCapture(true);
+        return () => window.SetHiddenForCapture(false);
     }
 
     /// <summary>

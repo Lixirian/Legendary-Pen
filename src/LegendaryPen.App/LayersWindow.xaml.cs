@@ -26,6 +26,7 @@ public partial class LayersWindow : Window
     private IntPtr _handle;
     private BoardBackground _background;
     private LayerStack _stack;
+    private bool _placed;
 
     /// <param name="commitText">Valide le texte en cours de saisie, avant un changement de pile : il doit atterrir sur un calque encore présent.</param>
     public LayersWindow(AppState state, LayerStacks stacks, SurfaceHistories histories, Action commitText)
@@ -61,14 +62,26 @@ public partial class LayersWindow : Window
 
     public IntPtr Handle => _handle;
 
+    /// <summary>Vrai le temps d'une capture : aucun placement ne doit alors faire réapparaître ni remonter le panneau.</summary>
+    public bool IsHiddenForCapture { get; private set; }
+
     /// <summary>Levé quand la taille du panneau change : il faut le replacer.</summary>
     public event Action? PlacementRequested;
 
     public bool SetExcludedFromCapture(bool excluded) => Win32.SetExcludedFromCapture(_handle, excluded);
 
+    public void SetHiddenForCapture(bool hidden)
+    {
+        IsHiddenForCapture = hidden;
+        ApplyOpacity();
+    }
+
+    // Invisible tant qu'il n'est pas à sa place, et pendant une capture.
+    private void ApplyOpacity() => Opacity = _placed && !IsHiddenForCapture ? 1 : 0;
+
     /// <summary>
     /// Place le panneau contre la barre, du côté où il tient, sans jamais passer dessous ni sortir de la zone ;
-    /// la liste défile si la zone est trop basse. Le rend visible.
+    /// la liste défile si la zone est trop basse. Le rend visible, sauf pendant une capture.
     /// </summary>
     public void PlaceBeside(PixelRect bar, bool vertical, PixelRect area)
     {
@@ -77,34 +90,17 @@ public partial class LayersWindow : Window
 
         // Hauteur naturelle : celle de la liste complète, indépendante du plafond posé plus tôt.
         var natural = (int)Math.Ceiling((ActualHeight - RowScroll.ActualHeight + Rows.DesiredSize.Height) * scale);
-        int x;
-        int y;
-        int height;
+        var place = LayersPanelPlacement.Beside(bar, vertical, area, size.Width, natural);
 
-        if (vertical)
-        {
-            var right = area.Right - bar.Right;
-            var left = bar.Left - area.Left;
-            var onRight = right >= size.Width || right >= left;
-            height = Math.Min(natural, area.Height);
-            x = onRight ? bar.Right : bar.Left - size.Width;
-            y = Math.Clamp(bar.Top, area.Top, area.Bottom - height);
-        }
-        else
-        {
-            var below = area.Bottom - bar.Bottom;
-            var above = bar.Top - area.Top;
-            var onBelow = below >= natural || below >= above;
-            height = Math.Min(natural, Math.Max(onBelow ? below : above, 0));
-            x = Math.Clamp(bar.Left, area.Left, Math.Max(area.Left, area.Right - size.Width));
-            y = onBelow ? bar.Bottom : bar.Top - height;
-        }
+        MaxHeight = place.MaxHeight is { } height ? height / scale : double.PositiveInfinity;
+        Win32.MoveTo(_handle, new PixelPoint(place.X, place.Y));
+        _placed = true;
+        ApplyOpacity();
 
-        x = Math.Clamp(x, area.Left, Math.Max(area.Left, area.Right - size.Width));
-        MaxHeight = height < natural && height > 0 ? height / scale : double.PositiveInfinity;
-        Win32.MoveTo(_handle, new PixelPoint(x, y));
-        Opacity = 1;
-        Raise();
+        if (!IsHiddenForCapture)
+        {
+            Raise();
+        }
     }
 
     protected override void OnSourceInitialized(EventArgs e)

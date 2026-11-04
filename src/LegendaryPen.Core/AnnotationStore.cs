@@ -3,7 +3,29 @@ using System.Text.Json;
 namespace LegendaryPen.Core;
 
 /// <summary>Texte d'annotation enregistré.</summary>
-public sealed record SavedText(string Text, double Left, double Top, double FontSize, string FontFamily, string Color);
+public sealed record SavedText(string Text, double Left, double Top, double FontSize, string FontFamily, string Color)
+{
+    public const string DefaultFontFamily = "Segoe UI";
+
+    public const double DefaultFontSize = 16;
+
+    // Au-delà, WPF refuse la taille du texte en levant une exception.
+    private const double MaxFontSize = 35_000;
+
+    /// <summary>
+    /// Ce texte, prêt à afficher. Un fichier retouché à la main peut avoir perdu un champ : il prend une valeur sûre, et le reste
+    /// est gardé. Une couleur vide reste vide, car elle prend la couleur du stylo à l'affichage.
+    /// </summary>
+    public SavedText Repaired() => this with
+    {
+        Text = Text ?? string.Empty,
+        Left = double.IsFinite(Left) ? Left : 0,
+        Top = double.IsFinite(Top) ? Top : 0,
+        FontSize = FontSize is > 0 and <= MaxFontSize ? FontSize : DefaultFontSize,
+        FontFamily = string.IsNullOrWhiteSpace(FontFamily) ? DefaultFontFamily : FontFamily,
+        Color = Color ?? string.Empty,
+    };
+}
 
 /// <summary>Un calque enregistré : le nom se déduit du numéro, il n'est pas gardé.</summary>
 public sealed record SavedLayer(Guid Id, int Number, bool IsVisible, byte[] Strokes, List<SavedText> Texts);

@@ -16,6 +16,145 @@ public sealed class AnnotationStoreLayersTests : IDisposable
     }
 
     [Fact]
+    public void A_damaged_text_gets_safe_values_and_keeps_the_rest()
+    {
+        var repaired = new SavedText(null!, 10, 20, 24, null!, null!).Repaired();
+
+        Assert.Equal(string.Empty, repaired.Text);
+        Assert.Equal(10, repaired.Left);
+        Assert.Equal(20, repaired.Top);
+        Assert.Equal(24, repaired.FontSize);
+        Assert.Equal(SavedText.DefaultFontFamily, repaired.FontFamily);
+        Assert.Equal(string.Empty, repaired.Color);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-3)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(1_000_000)]
+    public void A_text_size_the_display_would_refuse_is_replaced(double size)
+    {
+        Assert.Equal(SavedText.DefaultFontSize, new SavedText("a", 0, 0, size, "Segoe UI", "#000000").Repaired().FontSize);
+    }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    public void A_text_position_the_display_would_refuse_is_replaced(double position)
+    {
+        var repaired = new SavedText("a", position, position, 16, "Segoe UI", "#000000").Repaired();
+
+        Assert.Equal(0, repaired.Left);
+        Assert.Equal(0, repaired.Top);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void A_blank_font_is_replaced(string font)
+    {
+        Assert.Equal(SavedText.DefaultFontFamily, new SavedText("a", 0, 0, 16, font, "#000000").Repaired().FontFamily);
+    }
+
+    [Fact]
+    public void A_healthy_text_comes_back_unchanged()
+    {
+        var text = new SavedText("Note", 10, 20, 16, "Arial", "#FF0000");
+
+        Assert.Equal(text, text.Repaired());
+    }
+
+    [Fact]
+    public void A_null_saved_layer_does_not_stop_the_restore()
+    {
+        var stack = new LayerStack();
+        var good = new SavedLayer(Guid.NewGuid(), 2, true, [], []);
+        var saved = new SavedSurface([], [], [null!, good], good.Id, 3);
+
+        var targets = LayerRestoration.RestoreInto(stack, saved, stackAlreadyRestored: false);
+
+        Assert.Equal(good.Id, stack.Active.Id);
+        Assert.Equal(good.Id, targets[good.Id]);
+    }
+
+    [Fact]
+    public void A_file_whose_layers_share_a_number_keeps_the_stack_and_loses_nothing()
+    {
+        var stack = new LayerStack();
+        var first = stack.Active.Id;
+        var a = new SavedLayer(Guid.NewGuid(), 2, true, [], []);
+        var b = new SavedLayer(Guid.NewGuid(), 2, true, [], []);
+
+        var targets = LayerRestoration.RestoreInto(stack, new SavedSurface([], [], [a, b], a.Id, 3), stackAlreadyRestored: false);
+
+        Assert.Single(stack.Layers);
+        Assert.Equal(first, targets[a.Id]);
+        Assert.Equal(first, targets[b.Id]);
+    }
+
+    [Fact]
+    public void The_panel_goes_below_a_horizontal_bar_when_it_fits()
+    {
+        var place = LayersPanelPlacement.Beside(new PixelRect(100, 0, 500, 50), false, new PixelRect(0, 0, 1920, 1040), 300, 400);
+
+        Assert.Equal(new LayersPanelPlace(100, 50, null), place);
+    }
+
+    [Fact]
+    public void The_panel_goes_above_a_horizontal_bar_at_the_bottom()
+    {
+        var place = LayersPanelPlacement.Beside(new PixelRect(100, 990, 500, 1040), false, new PixelRect(0, 0, 1920, 1040), 300, 400);
+
+        Assert.Equal(new LayersPanelPlace(100, 590, null), place);
+    }
+
+    [Fact]
+    public void The_panel_is_capped_to_the_room_on_the_largest_side()
+    {
+        var place = LayersPanelPlacement.Beside(new PixelRect(100, 300, 500, 350), false, new PixelRect(0, 0, 1920, 600), 300, 400);
+
+        Assert.Equal(new LayersPanelPlace(100, 0, 300), place);
+    }
+
+    [Fact]
+    public void The_panel_stays_in_the_area_when_a_horizontal_bar_leaves_no_room()
+    {
+        var area = new PixelRect(0, 0, 1920, 300);
+
+        var place = LayersPanelPlacement.Beside(new PixelRect(100, 0, 500, 300), false, area, 300, 400);
+
+        Assert.Equal(new LayersPanelPlace(100, 0, 300), place);
+    }
+
+    [Fact]
+    public void The_panel_stays_in_the_area_when_the_bar_is_outside_it()
+    {
+        var area = new PixelRect(0, 0, 1920, 300);
+
+        var place = LayersPanelPlacement.Beside(new PixelRect(100, 400, 500, 450), false, area, 300, 200);
+
+        Assert.InRange(place.Y, area.Top, area.Bottom - 200);
+    }
+
+    [Fact]
+    public void An_area_too_low_for_the_panel_beside_a_vertical_bar_caps_it()
+    {
+        var place = LayersPanelPlacement.Beside(new PixelRect(0, 50, 50, 550), true, new PixelRect(0, 0, 1920, 300), 300, 400);
+
+        Assert.Equal(new LayersPanelPlace(50, 0, 300), place);
+    }
+
+    [Fact]
+    public void The_panel_goes_left_of_a_vertical_bar_on_the_right_edge()
+    {
+        var place = LayersPanelPlacement.Beside(new PixelRect(1870, 100, 1920, 600), true, new PixelRect(0, 0, 1920, 1040), 300, 400);
+
+        Assert.Equal(new LayersPanelPlace(1570, 100, null), place);
+    }
+
+    [Fact]
     public void A_file_from_version_0_6_is_still_read()
     {
         var store = new AnnotationStore(_folder);

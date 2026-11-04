@@ -70,10 +70,13 @@ public static class LayerRestoration
     /// </summary>
     public static IReadOnlyDictionary<Guid, Guid> RestoreInto(LayerStack stack, SavedSurface saved, bool stackAlreadyRestored)
     {
-        if (saved.Layers is not { } layers)
+        if (saved.Layers is not { } allLayers)
         {
             return new Dictionary<Guid, Guid>();
         }
+
+        // Un calque nul ne vient que d'un fichier retouché à la main : le reste se relit.
+        var layers = allLayers.Where(layer => layer is not null).ToList();
 
         try
         {

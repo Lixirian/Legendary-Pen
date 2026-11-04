@@ -90,6 +90,11 @@ public sealed class LayerStack
     {
         ArgumentNullException.ThrowIfNull(state);
         var layers = state.Layers;
+        if (layers is null || layers.Any(l => l is null))
+        {
+            throw new ArgumentException("A stack cannot hold a null layer.", nameof(state));
+        }
+
         if (layers.Count is < 1 or > MaxLayers)
         {
             throw new ArgumentException("A stack holds between 1 and 8 layers.", nameof(state));
@@ -98,6 +103,11 @@ public sealed class LayerStack
         if (layers.Select(l => l.Id).Distinct().Count() != layers.Count)
         {
             throw new ArgumentException("Layer ids must be unique.", nameof(state));
+        }
+
+        if (layers.Select(l => l.Number).Distinct().Count() != layers.Count)
+        {
+            throw new ArgumentException("Layer numbers must be unique.", nameof(state));
         }
 
         var active = layers.FirstOrDefault(l => l.Id == state.ActiveId)
