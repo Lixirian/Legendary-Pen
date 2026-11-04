@@ -161,7 +161,7 @@ internal sealed class AudioSource : IDisposable
         }
         catch (Exception exception)
         {
-            // Absent, ou permission refusée : l'appelant enregistre sans son et le dit à la fin.
+            // Absent, ou permission refusée : l'appelant enregistre sans son et le dit dès que c'est décidé, puis à la fin.
             Debug.WriteLine(exception);
             _openFailed = true;
             CloseDevice();
