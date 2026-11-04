@@ -108,6 +108,7 @@ public partial class ToolbarWindow : Window
 
         _state.Changed += Refresh;
         _presentation.Changed += Refresh;
+        _presentation.Changed += SyncPresentationMenu;
         _pen.Changed += Refresh;
         _histories.Changed += Refresh;
         _overlays.TextEditingChanged += Refresh;
@@ -773,9 +774,21 @@ public partial class ToolbarWindow : Window
         {
             item.InputGestureText = _hotkeys[action] is { IsNone: false } binding ? binding.Format() : string.Empty;
         }
+
+        var presentationName = Loc.T("Présentation");
+        var presentationKeys = _presentationItems.Select(entry => _hotkeys[entry.Action]).Where(binding => !binding.IsNone).Select(binding => binding.Format()).ToList();
+        PresentationButton.ToolTip = presentationKeys.Count == 0 ? presentationName : $"{presentationName} ({string.Join(", ", presentationKeys)})";
     }
 
-    // Les cases se synchronisent à l'ouverture : un raccourci ou l'icône de notification ont pu changer l'état entre-temps.
+    // Un raccourci ou l'icône de notification peuvent changer l'état, même menu ouvert : les cases suivent à chaque changement.
+    private void SyncPresentationMenu()
+    {
+        foreach (var (item, _, isOn) in _presentationItems)
+        {
+            item.IsChecked = isOn();
+        }
+    }
+
     private void CreatePresentationMenu()
     {
         _presentationMenu.Style = (Style)FindResource("PresentationMenuStyle");
@@ -806,10 +819,7 @@ public partial class ToolbarWindow : Window
         };
         _presentationMenu.Opened += (_, _) =>
         {
-            foreach (var (item, _, isOn) in _presentationItems)
-            {
-                item.IsChecked = isOn();
-            }
+            SyncPresentationMenu();
 
             // Oublie ce qui précède l'ouverture : le clic qui a ouvert le menu ne doit pas compter.
             Win32.WasMouseButtonPressed();

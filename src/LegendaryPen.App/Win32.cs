@@ -63,6 +63,7 @@ internal static partial class Win32
     private const int WhMouseLl = 14;
     private const uint QsAllInput = 0x04FF;
     private const uint WaitObject0 = 0;
+    private const uint WaitFailed = 0xFFFFFFFF;
     private const uint MagnifierFilterExclude = 0;
     private const string MagnifierClass = "Magnifier";
     private const string MagnifierHostClass = "LegendaryPenMagnifierHost";
@@ -376,7 +377,10 @@ internal static partial class Win32
     /// <summary>Attend un signal, un message ou la fin du délai. Renvoie vrai seulement si un message est arrivé.</summary>
     public static bool WaitForMessageOrSignal(IntPtr signal, uint milliseconds)
     {
-        return MsgWaitForMultipleObjects(1, [signal], false, milliseconds, QsAllInput) == WaitObject0 + 1;
+        var result = MsgWaitForMultipleObjects(1, [signal], false, milliseconds, QsAllInput);
+
+        // Une attente qui échoue échouerait de nouveau aussitôt : l'appelant tournerait à vide.
+        return result == WaitFailed ? throw new System.ComponentModel.Win32Exception() : result == WaitObject0 + 1;
     }
 
     public static IReadOnlyList<MonitorArea> GetMonitors()
@@ -575,7 +579,7 @@ internal static partial class Win32
     [LibraryImport("user32.dll")]
     private static partial IntPtr DispatchMessageW(in NativeMessage message);
 
-    [LibraryImport("user32.dll")]
+    [LibraryImport("user32.dll", SetLastError = true)]
     private static partial uint MsgWaitForMultipleObjects(uint count, IntPtr[] handles, [MarshalAs(UnmanagedType.Bool)] bool waitAll, uint milliseconds, uint wakeMask);
 
     [LibraryImport("kernel32.dll", StringMarshalling = StringMarshalling.Utf16)]

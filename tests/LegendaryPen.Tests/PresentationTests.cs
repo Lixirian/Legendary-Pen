@@ -175,6 +175,36 @@ public class PresentationTests
     }
 
     [Fact]
+    public void A_ripple_with_an_unknown_age_is_finished()
+    {
+        Assert.Equal(new ClickRipple(48, 0), PresentationGeometry.RippleAt(double.NaN));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(double.NaN)]
+    public void A_zoom_that_does_not_enlarge_anything_is_refused(double zoom)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => PresentationGeometry.MagnifierSource(new PixelPoint(960, 540), 320, zoom, Screen));
+    }
+
+    [Fact]
+    public void A_screen_smaller_than_the_magnifier_keeps_it_on_its_first_corner()
+    {
+        var tiny = new PixelRect(-100, 50, 100, 250);
+
+        var box = PresentationGeometry.MagnifierWindow(new PixelPoint(0, 150), 320, tiny);
+        var source = PresentationGeometry.MagnifierSource(new PixelPoint(0, 150), 320, 2, tiny);
+
+        Assert.Equal(new PixelRect(-100, 50, 220, 370), box);
+        Assert.Equal(160, source.Width);
+        Assert.Equal(160, source.Height);
+        Assert.InRange(source.Left, tiny.Left, tiny.Right);
+        Assert.InRange(source.Top, tiny.Top, tiny.Bottom);
+    }
+
+    [Fact]
     public void A_finished_ripple_stays_invisible()
     {
         Assert.Equal(0, PresentationGeometry.RippleAt(900).Opacity);

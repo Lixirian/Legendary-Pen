@@ -71,6 +71,11 @@ public static class PresentationGeometry
     /// </summary>
     public static PixelRect MagnifierSource(PixelPoint pointer, int diameter, double zoom, PixelRect monitor)
     {
+        if (!(zoom > 0))
+        {
+            throw new ArgumentOutOfRangeException(nameof(zoom), zoom, "The zoom must be above zero.");
+        }
+
         var box = MagnifierWindow(pointer, diameter, monitor);
         var size = (int)Math.Round(diameter / zoom);
         var left = ClampToRange(SourceOrigin(pointer.X, box.Left, zoom), monitor.Left, monitor.Right - size);
@@ -84,10 +89,10 @@ public static class PresentationGeometry
         return !menu.Contains(press.X, press.Y) && !button.Contains(press.X, press.Y);
     }
 
-    /// <summary>L'anneau grandit et s'efface de façon linéaire, puis reste invisible.</summary>
+    /// <summary>L'anneau grandit et s'efface de façon linéaire, puis reste invisible. Un âge inconnu vaut un anneau fini.</summary>
     public static ClickRipple RippleAt(double elapsedMilliseconds)
     {
-        var progress = Math.Clamp(elapsedMilliseconds / RippleDuration, 0, 1);
+        var progress = double.IsNaN(elapsedMilliseconds) ? 1 : Math.Clamp(elapsedMilliseconds / RippleDuration, 0, 1);
         return new ClickRipple(RippleMaxRadius * progress, 1 - progress);
     }
 

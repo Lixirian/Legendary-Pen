@@ -52,7 +52,7 @@ internal sealed class MagnifierWindow : IDisposable
     }
 
     /// <summary>
-    /// Démarre le fil, une seule fois par processus. Renvoie null si c'est déjà fait. Un échec sur le fil arrive ensuite
+    /// Démarre le fil, une seule fois par processus. Renvoie null si c'est déjà fait, ou si le fil ne démarre pas. Un échec sur le fil arrive ensuite
     /// par <paramref name="onUnavailable"/>, sur le fil de l'interface, sans message ni plantage.
     /// </summary>
     public static MagnifierWindow? TryStart(IReadOnlyList<MonitorArea> monitors, IntPtr below, Action onUnavailable, Func<PixelPoint>? readPointer = null)
@@ -65,8 +65,18 @@ internal sealed class MagnifierWindow : IDisposable
         _startAttempted = true;
 
         var magnifier = new MagnifierWindow(monitors, below, onUnavailable, readPointer ?? Win32.GetPointer);
-        magnifier._thread.Start();
-        return magnifier;
+
+        try
+        {
+            magnifier._thread.Start();
+            return magnifier;
+        }
+        catch (Exception exception) when (exception is ThreadStartException or OutOfMemoryException)
+        {
+            Debug.WriteLine(exception.Message);
+            magnifier.DisposeSignals();
+            return null;
+        }
     }
 
     public void SetMonitors(IReadOnlyList<MonitorArea> monitors) => Publish(_request with { Monitors = monitors.ToArray() });
@@ -144,14 +154,19 @@ internal sealed class MagnifierWindow : IDisposable
 
         if (_thread.Join(StopTimeout))
         {
-            _wake.Dispose();
-            _hidden.Dispose();
-            _captureExclusionSettled.Dispose();
+            DisposeSignals();
         }
         else
         {
             Debug.WriteLine("La loupe ne s'est pas arrêtée à temps.");
         }
+    }
+
+    private void DisposeSignals()
+    {
+        _wake.Dispose();
+        _hidden.Dispose();
+        _captureExclusionSettled.Dispose();
     }
 
     private void Publish(Request request)

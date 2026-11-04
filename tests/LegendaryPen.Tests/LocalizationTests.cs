@@ -45,6 +45,7 @@ public sealed partial class LocalizationTests : IDisposable
         "The active layer is not in the stack.",
         "The active layer must be visible.",
         "The next number must follow every layer number.",
+        "The zoom must be above zero.",
         "Screen recording is not supported on this system.",
         "A recorder runs only once.",
         "The monitor to record is gone.",

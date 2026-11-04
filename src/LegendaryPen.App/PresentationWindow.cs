@@ -139,7 +139,6 @@ internal sealed class PresentationWindow : Window
         _handle = new WindowInteropHelper(this).Handle;
         Win32.MakeFloatingToolWindow(_handle);
         Win32.SetClickThrough(_handle, true);
-        Win32.SetNoActivate(_handle, true);
         Win32.SetBounds(_handle, _monitor.Bounds);
         HwndSource.FromHwnd(_handle)!.AddHook(OnWindowMessage);
     }
