@@ -147,9 +147,14 @@ public sealed class OverlayManager
             _keyboardOverlay = overlay;
             overlay.SetKeyboardInput(true);
         }
-        else if (_keyboardOverlay == overlay)
+        else
         {
-            _keyboardOverlay = null;
+            // Une saisie commencée sur un autre écran a déjà pris la main : cet écran doit quand même redevenir non activable.
+            if (_keyboardOverlay == overlay)
+            {
+                _keyboardOverlay = null;
+            }
+
             overlay.SetKeyboardInput(false);
         }
 

@@ -50,7 +50,7 @@ public readonly record struct HotkeyBinding(uint Modifiers, uint Key)
     {
         if (IsNone)
         {
-            return "Aucun";
+            return Loc.T("Aucun");
         }
 
         var parts = new List<string>();

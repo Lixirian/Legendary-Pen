@@ -7,6 +7,9 @@ using System.Windows.Threading;
 using LegendaryPen.Core;
 using Microsoft.Win32;
 
+// Une DLL homonyme déposée dans le dossier de l'application ou le dossier courant ne doit jamais être chargée.
+[assembly: DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+
 namespace LegendaryPen.App;
 
 public partial class App : Application
@@ -35,10 +38,19 @@ public partial class App : Application
     private TrayIcon? _tray;
     private NotificationCenter? _notifications;
     private HotkeyMap? _pendingHotkeys;
+    private readonly ErrorBurst _errorBurst = new();
+    private ErrorJournal? _errorJournal;
+    private bool _handlingError;
+    private bool _settingsReadFailed;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        InstallErrorHandlers();
+
+        // Un programme lancé sans chemin complet ne doit jamais être cherché dans un dossier choisi par quelqu'un d'autre.
+        Environment.CurrentDirectory = Environment.SystemDirectory;
 
         _instanceGuard = new SingleInstanceGuard();
 
@@ -357,7 +369,7 @@ public partial class App : Application
                 Win32.WaitForComposition();
                 image = new CaptureSession().Run(toolbar.Monitors);
             }
-            catch (InvalidOperationException exception)
+            catch (Exception exception) when (exception is InvalidOperationException or ExternalException)
             {
                 MessageWindow.Show(exception.Message);
             }
@@ -455,9 +467,14 @@ public partial class App : Application
     {
         _overlays!.CommitText();
 
-        var folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Legendary Pen");
+        // Hors du profil itinérant et chiffrée pour cet utilisateur : un tracé de signature ne doit pas voyager avec les sauvegardes.
+        var store = new SignatureStore(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Legendary Pen", "signature.dat"),
+            SignatureProtection.Protect,
+            SignatureProtection.Unprotect,
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Legendary Pen", "signature.json"));
 
-        _toolbar!.RunExclusive(() => new PdfSignWindow(new SignatureStore(Path.Combine(folder, "signature.json"))).ShowDialog());
+        _toolbar!.RunExclusive(() => new PdfSignWindow(store).ShowDialog());
     }
 
     private void OpenSettings()
@@ -488,12 +505,12 @@ public partial class App : Application
                 DeleteSavedAnnotations();
             }
 
+            SaveSettings();
+
             if (canChangeStartup)
             {
-                StartupRegistration.Set(window.StartupEnabled);
+                ApplyStartup(window.StartupEnabled);
             }
-
-            SaveSettings();
         });
 
         // Les raccourcis se réenregistrent une fois la fenêtre fermée et la suspension levée.
@@ -590,9 +607,29 @@ public partial class App : Application
         }
     }
 
+    // Une stratégie du poste peut interdire cette clé : les réglages viennent d'être enregistrés, seul ce choix échoue.
+    private static void ApplyStartup(bool enabled)
+    {
+        try
+        {
+            StartupRegistration.Set(enabled);
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException or System.Security.SecurityException)
+        {
+            MessageWindow.Show(Loc.T("Impossible de modifier le démarrage avec Windows.\n\n{0}", exception.Message));
+        }
+    }
+
     private void SaveSettings()
     {
         _saveTimer.Stop();
+
+        // Le fichier existe peut-être encore intact : écrire les valeurs par défaut par-dessus le détruirait.
+        if (_settingsReadFailed)
+        {
+            return;
+        }
+
         _settings = _settings with
         {
             QuickColors = _pen!.QuickColors.Select(color => color.ToHex()).ToList(),
@@ -612,7 +649,7 @@ public partial class App : Application
         }
     }
 
-    private static AppSettings LoadSettings(SettingsStore store)
+    private AppSettings LoadSettings(SettingsStore store)
     {
         try
         {
@@ -620,8 +657,98 @@ public partial class App : Application
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            ReportSettingsFailure(Loc.T("Lecture impossible : {0}", exception.Message));
+            _settingsReadFailed = true;
+            ReportSettingsFailure(Loc.T("Lecture impossible : {0}\n\nLes réglages habituels reviendront au prochain démarrage. Les changements faits d'ici là ne seront pas gardés.", exception.Message));
             return new AppSettings();
+        }
+    }
+
+    private void InstallErrorHandlers()
+    {
+        _errorJournal = new ErrorJournal(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Legendary Pen",
+            "erreurs.log"));
+
+        DispatcherUnhandledException += OnUnhandledInterfaceError;
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            _errorJournal.Write("Task", e.Exception, DateTime.Now);
+            e.SetObserved();
+        };
+        AppDomain.CurrentDomain.UnhandledException += OnUnhandledBackgroundError;
+    }
+
+    // L'application continue : une vidéo en cours vaut plus qu'un bouton qui n'a pas répondu. Une panne qui se répète ferme proprement, ce qui termine aussi la vidéo.
+    private void OnUnhandledInterfaceError(object sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        e.Handled = true;
+        _errorJournal?.Write("Interface", e.Exception, DateTime.Now);
+
+        if (_handlingError)
+        {
+            return;
+        }
+
+        _handlingError = true;
+
+        try
+        {
+            SaveAfterError();
+
+            if (_notifications is null || e.Exception is OutOfMemoryException || _errorBurst.IsTooMany(DateTime.UtcNow))
+            {
+                MessageWindow.Show(Loc.T("Une erreur empêche Legendary Pen de continuer : l'application va se fermer.\n\nDétails : {0}", _errorJournal?.Path ?? string.Empty));
+                Shutdown();
+            }
+            else
+            {
+                _notifications.Show(Loc.T("Une erreur inattendue s'est produite. L'application continue."));
+            }
+        }
+        finally
+        {
+            _handlingError = false;
+        }
+    }
+
+    // Une erreur hors du fil de l'interface ferme le processus quoi qu'on fasse : il ne reste qu'à en garder la trace et à sauver ce qui peut l'être.
+    private void OnUnhandledBackgroundError(object sender, UnhandledExceptionEventArgs e)
+    {
+        if (e.ExceptionObject is Exception exception)
+        {
+            _errorJournal?.Write("Background", exception, DateTime.Now);
+        }
+
+        try
+        {
+            Dispatcher.Invoke(SaveAfterError, TimeSpan.FromSeconds(2));
+        }
+        catch (Exception failure) when (failure is TaskCanceledException or InvalidOperationException)
+        {
+            // Le fil de l'interface est lui-même arrêté ou bloqué.
+        }
+    }
+
+    // Respecte le choix de ne pas conserver les annotations ; une erreur ici ne doit pas masquer celle qu'on traite.
+    private void SaveAfterError()
+    {
+        try
+        {
+            if (_pen is not null)
+            {
+                SaveSettings();
+            }
+
+            if (_options?.KeepAnnotations == true)
+            {
+                _overlays?.CommitText();
+                SaveAnnotations();
+            }
+        }
+        catch (Exception failure)
+        {
+            _errorJournal?.Write("Recovery", failure, DateTime.Now);
         }
     }
 

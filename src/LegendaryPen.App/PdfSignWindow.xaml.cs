@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using LegendaryPen.Core;
 using Path = System.IO.Path;
@@ -20,7 +21,7 @@ public partial class PdfSignWindow : Window
     private readonly SignatureStore _store;
     private readonly List<PlacedSignature> _placed = [];
     private PdfPreview? _preview;
-    private string? _path;
+    private PdfSnapshot? _source;
     private int _pageIndex;
     private double _pageAspect = 1;
     private PlacedSignature? _selected;
@@ -39,33 +40,56 @@ public partial class PdfSignWindow : Window
     /// <summary>Ouvre un document. Renvoie false si Windows ne peut pas le lire.</summary>
     public async Task<bool> OpenAsync(string path)
     {
-        PdfPreview preview;
+        PdfSnapshot source;
+        bool canSign;
+        bool hasDigitalSignature;
 
-        if (!await Task.Run(() => PdfSigner.CanSign(path)))
+        try
+        {
+            // Une seule lecture du fichier, hors du fil de l'interface : tout le reste travaille sur ces octets.
+            (source, canSign, hasDigitalSignature) = await Task.Run(() =>
+            {
+                var snapshot = PdfSnapshot.Read(path);
+                var signable = PdfSigner.CanSign(snapshot);
+                return (snapshot, signable, signable && HasDigitalSignature(snapshot));
+            });
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            MessageWindow.Show(exception.Message);
+            return false;
+        }
+
+        if (!canSign)
         {
             MessageWindow.Show(Loc.T("Ce PDF ne peut pas être signé ici : il est protégé, interdit la modification ou est endommagé. Il n'a pas été modifié."));
             return false;
         }
 
+        PdfPreview preview;
+        BitmapSource firstPage;
+
         try
         {
-            preview = await PdfPreview.OpenAsync(path);
+            preview = await PdfPreview.OpenAsync(source);
+            firstPage = await preview.RenderAsync(0);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException)
+        catch (Exception exception) when (exception is not OutOfMemoryException)
         {
+            // Le moteur de Windows signale ses échecs avec plusieurs types d'exceptions.
             MessageWindow.Show(Loc.T("Windows ne parvient pas à afficher ce PDF. Il n'a pas été modifié."));
             return false;
         }
 
         _preview = preview;
-        _path = path;
+        _source = source;
         _placed.Clear();
         Select(null);
-        await ShowPageAsync(0);
+        ShowPage(0, firstPage);
 
         Title = Loc.T("Signer un PDF - {0}", Path.GetFileName(path));
 
-        if (HasDigitalSignature(path))
+        if (hasDigitalSignature)
         {
             MessageWindow.Show(Loc.T("Ce PDF porte une signature numérique. Elle restera valable dans l'original, mais plus dans la copie que vous enregistrerez ici."));
         }
@@ -93,15 +117,26 @@ public partial class PdfSignWindow : Window
     /// <summary>Écrit la copie signée. Renvoie false en cas d'échec, après l'avoir signalé.</summary>
     public async Task<bool> SaveAsync(string destination)
     {
-        var source = _path!;
+        var source = _source!;
         var placements = Placements;
 
         SaveButton.IsEnabled = false;
 
         try
         {
-            await Task.Run(() => PdfSigner.Sign(source, destination, placements));
+            var changed = await Task.Run(() =>
+            {
+                PdfSigner.Sign(source, destination, placements);
+                return source.HasChangedOnDisk();
+            });
+
             StatusText.Text = Loc.T("Enregistré : {0}", destination);
+
+            if (changed)
+            {
+                MessageWindow.Show(Loc.T("Le fichier d'origine a changé depuis son ouverture. La copie signée a été faite à partir de la version que vous aviez à l'écran."));
+            }
+
             return true;
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
@@ -116,11 +151,11 @@ public partial class PdfSignWindow : Window
         }
     }
 
-    private static bool HasDigitalSignature(string path)
+    private static bool HasDigitalSignature(PdfSnapshot source)
     {
         try
         {
-            return PdfSigner.HasDigitalSignature(path);
+            return PdfSigner.HasDigitalSignature(source);
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
@@ -133,8 +168,24 @@ public partial class PdfSignWindow : Window
     {
         Select(null);
 
-        var image = await _preview!.RenderAsync(pageIndex);
+        BitmapSource image;
 
+        try
+        {
+            image = await _preview!.RenderAsync(pageIndex);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            // Une seule page abîmée ne doit pas fermer la fenêtre : les autres restent accessibles.
+            MessageWindow.Show(Loc.T("Windows ne parvient pas à afficher cette page."));
+            return;
+        }
+
+        ShowPage(pageIndex, image);
+    }
+
+    private void ShowPage(int pageIndex, BitmapSource image)
+    {
         _pageIndex = pageIndex;
         _pageAspect = (double)image.PixelWidth / image.PixelHeight;
         PageImage.Source = image;
@@ -319,6 +370,7 @@ public partial class PdfSignWindow : Window
         {
             Title = Loc.T("Ouvrir un PDF"),
             Filter = Loc.T("Document PDF (*.pdf)|*.pdf"),
+            RestoreDirectory = true,
         };
 
         if (dialog.ShowDialog(this) == true)
@@ -376,8 +428,9 @@ public partial class PdfSignWindow : Window
             Title = Loc.T("Enregistrer le PDF signé"),
             Filter = Loc.T("Document PDF (*.pdf)|*.pdf"),
             DefaultExt = ".pdf",
-            InitialDirectory = Path.GetDirectoryName(_path),
-            FileName = Path.GetFileName(PdfFiles.SignedPath(_path!, File.Exists)),
+            RestoreDirectory = true,
+            InitialDirectory = Path.GetDirectoryName(_source!.Path),
+            FileName = Path.GetFileName(PdfFiles.SignedPath(_source!.Path, File.Exists)),
         };
 
         if (dialog.ShowDialog(this) != true)
@@ -385,7 +438,7 @@ public partial class PdfSignWindow : Window
             return;
         }
 
-        if (PdfFiles.IsSameFile(_path!, dialog.FileName))
+        if (PdfFiles.IsSameFile(_source!.Path, dialog.FileName))
         {
             MessageWindow.Show(Loc.T("Choisissez un autre nom : le fichier d'origine n'est jamais remplacé."));
             return;

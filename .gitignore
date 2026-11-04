@@ -10,5 +10,18 @@ TestResults/
 docs/
 signing-key.local.txt
 
+# Clés et sauvegardes : jamais sur le dépôt public, même déposées ici par erreur.
+*.backup
+*.key
+*.pem
+*.pfx
+*.p12
+*.snk
+
+# Fichiers locaux de travail et installeurs.
+.claude/settings.local.json
+.superpowers/
+LegendaryPen-Setup-*.exe
+
 # Terminal Paste Image folder
 .cp-images/

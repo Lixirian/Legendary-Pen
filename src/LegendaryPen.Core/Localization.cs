@@ -62,6 +62,11 @@ public static class Translations
         ["Annuler"] = "Cancel",
 
         // Signature de PDF
+        ["Ce PDF est trop volumineux pour être signé ici (500 Mo au plus)."] = "This PDF is too large to be signed here (500 MB at most).",
+        ["Le contenu de cette page ne peut pas être lu."] = "The content of this page cannot be read.",
+        ["La copie signée n'a pas passé le contrôle de relecture."] = "The signed copy did not pass the final check.",
+        ["Windows ne parvient pas à afficher cette page."] = "Windows cannot display this page.",
+        ["Le fichier d'origine a changé depuis son ouverture. La copie signée a été faite à partir de la version que vous aviez à l'écran."] = "The original file has changed since it was opened. The signed copy was made from the version on your screen.",
         ["Signer un PDF"] = "Sign a PDF",
         ["Signer un PDF - {0}"] = "Sign a PDF - {0}",
         ["Ouvrir un PDF"] = "Open a PDF",
@@ -244,6 +249,10 @@ public static class Translations
         ["Image PNG (*.png)|*.png"] = "PNG image (*.png)|*.png",
         ["Windows a refusé la capture de l'écran."] = "Windows refused the screen capture.",
         ["Impossible d'enregistrer les annotations."] = "Could not save the annotations.",
+        ["Impossible de modifier le démarrage avec Windows.\n\n{0}"] = "Could not change the start with Windows setting.\n\n{0}",
+        ["Lecture impossible : {0}\n\nLes réglages habituels reviendront au prochain démarrage. Les changements faits d'ici là ne seront pas gardés."] = "Could not read them: {0}\n\nYour usual settings will come back at the next start. Changes made until then will not be kept.",
+        ["Une erreur empêche Legendary Pen de continuer : l'application va se fermer.\n\nDétails : {0}"] = "An error prevents Legendary Pen from continuing: the application will close.\n\nDetails: {0}",
+        ["Une erreur inattendue s'est produite. L'application continue."] = "An unexpected error occurred. The application keeps running.",
         ["Impossible de supprimer les annotations enregistrées.\n\n{0}"] = "Could not delete the saved annotations.\n\n{0}",
 
         // Enregistrement vidéo

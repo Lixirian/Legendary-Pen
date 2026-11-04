@@ -80,7 +80,7 @@ Rien n'est envoyé : l'image et le son restent sur cet ordinateur ou dans le dos
 
 Le bouton « Signer un PDF » de la barre, aussi présent dans le menu de l'icône près de l'horloge, ouvre un document. On y trace sa signature ou on pose celle qu'on a mémorisée, on la déplace et on la redimensionne, puis on enregistre une copie. Le fichier d'origine n'est jamais modifié ; toutes les pages et leur texte sélectionnable sont conservés.
 
-Cette signature est visuelle : elle n'a pas la valeur d'une signature électronique certifiée. Une signature mémorisée reste uniquement sur l'ordinateur, sans chiffrement, et le bouton « Oublier ma signature » la supprime. La désinstallation efface aussi la signature mémorisée et les annotations conservées, mais garde les réglages. Les PDF protégés ou interdisant la modification sont refusés.
+Cette signature est visuelle : elle n'a pas la valeur d'une signature électronique certifiée. Une signature mémorisée reste uniquement sur l'ordinateur, chiffrée pour la session Windows, et le bouton « Oublier ma signature » la supprime. La désinstallation efface aussi la signature mémorisée et les annotations conservées, mais garde les réglages. Les PDF protégés ou interdisant la modification sont refusés.
 
 ## Mises à jour
 

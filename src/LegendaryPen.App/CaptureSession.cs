@@ -23,23 +23,31 @@ internal sealed class CaptureSession
     /// <summary>Bloque jusqu'à la sélection. Renvoie null si l'utilisateur annule.</summary>
     public BitmapSource? Run(IReadOnlyList<MonitorArea> monitors)
     {
-        foreach (var monitor in monitors)
+        // Tous les écrans d'abord : un refus de copie ne laisse ainsi aucune fenêtre plein écran derrière lui.
+        var screens = monitors.Select(monitor => (Monitor: monitor, Image: Win32.CaptureScreen(monitor.Bounds))).ToList();
+
+        try
         {
-            var window = new CaptureWindow(monitor, Win32.CaptureScreen(monitor.Bounds), Finish);
-            _windows.Add(window);
-            window.Show();
+            foreach (var screen in screens)
+            {
+                var window = new CaptureWindow(screen.Monitor, screen.Image, Finish);
+                _windows.Add(window);
+                window.Show();
+            }
+
+            var pointer = Win32.GetPointer();
+            var active = _windows.FirstOrDefault(window => window.Monitor.Bounds.Contains(pointer.X, pointer.Y)) ?? _windows[0];
+            active.Activate();
+            active.Focus();
+
+            Dispatcher.PushFrame(_frame);
         }
-
-        var pointer = Win32.GetPointer();
-        var active = _windows.FirstOrDefault(window => window.Monitor.Bounds.Contains(pointer.X, pointer.Y)) ?? _windows[0];
-        active.Activate();
-        active.Focus();
-
-        Dispatcher.PushFrame(_frame);
-
-        foreach (var window in _windows)
+        finally
         {
-            window.Close();
+            foreach (var window in _windows)
+            {
+                window.Close();
+            }
         }
 
         return _result;
@@ -241,6 +249,7 @@ internal static class CaptureDelivery
             Filter = Loc.T("Image PNG (*.png)|*.png"),
             DefaultExt = ".png",
             InitialDirectory = target,
+            RestoreDirectory = true,
             FileName = System.IO.Path.GetFileName(CaptureFiles.UniquePath(target, DateTime.Now, File.Exists)),
         };
 
@@ -274,7 +283,10 @@ internal static class CaptureDelivery
 
     public static void ShowInExplorer(string path)
     {
-        Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true });
+        // Chemin complet : un autre explorer.exe, posé dans le dossier courant, ne doit jamais être lancé à sa place.
+        var explorer = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
+
+        Process.Start(new ProcessStartInfo(explorer, $"/select,\"{path}\"") { UseShellExecute = false });
     }
 
     private static void WritePng(BitmapSource image, string path)

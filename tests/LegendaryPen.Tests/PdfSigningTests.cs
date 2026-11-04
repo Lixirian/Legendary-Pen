@@ -74,7 +74,7 @@ public class SignatureInkTests
     public void A_saved_signature_comes_back_identical()
     {
         var path = Path.Combine(Path.GetTempPath(), $"lp-signature-{Guid.NewGuid():N}", "signature.json");
-        var store = new SignatureStore(path);
+        var store = new SignatureStore(path, bytes => bytes, bytes => bytes);
         var ink = SignatureInk.FromStrokes([[new(1, 2), new(30, 40)], [new(5, 6)]], 2, Blue)!;
 
         try
@@ -107,7 +107,7 @@ public class SignatureInkTests
 
         try
         {
-            Assert.Null(new SignatureStore(path).Load());
+            Assert.Null(new SignatureStore(path, bytes => bytes, bytes => bytes).Load());
         }
         finally
         {
@@ -238,7 +238,7 @@ public sealed class PdfSignerTests : IDisposable
     {
         var source = WritePdf("source.pdf", "", "", "", "");
 
-        PdfSigner.Sign(source, Target, [new SignaturePlacement(Ink, 1, 0.1, 0.1, 0.4)]);
+        PdfSigner.Sign(PdfSnapshot.Read(source), Target, [new SignaturePlacement(Ink, 1, 0.1, 0.1, 0.4)]);
 
         using (var document = PdfReader.Open(Target, PdfDocumentOpenMode.Modify))
         {
@@ -260,7 +260,7 @@ public sealed class PdfSignerTests : IDisposable
         var source = WritePdf("source.pdf", "", "");
         var before = File.ReadAllBytes(source);
 
-        PdfSigner.Sign(source, Target, [new SignaturePlacement(Ink, 0, 0, 0, 0.5)]);
+        PdfSigner.Sign(PdfSnapshot.Read(source), Target, [new SignaturePlacement(Ink, 0, 0, 0, 0.5)]);
 
         Assert.Equal(before, File.ReadAllBytes(source));
     }
@@ -271,7 +271,7 @@ public sealed class PdfSignerTests : IDisposable
         var source = WritePdf("source.pdf", "", "");
         var before = File.ReadAllBytes(source);
 
-        Assert.Throws<ArgumentException>(() => PdfSigner.Sign(source, source.ToUpperInvariant(), [new SignaturePlacement(Ink, 0, 0, 0, 0.5)]));
+        Assert.Throws<ArgumentException>(() => PdfSigner.Sign(PdfSnapshot.Read(source), source.ToUpperInvariant(), [new SignaturePlacement(Ink, 0, 0, 0, 0.5)]));
         Assert.Equal(before, File.ReadAllBytes(source));
     }
 
@@ -280,7 +280,7 @@ public sealed class PdfSignerTests : IDisposable
     {
         var source = WritePdf("source.pdf", "", "");
 
-        PdfSigner.Sign(source, Target, [new SignaturePlacement(Ink, 0, 0, 0, 0.5)]);
+        PdfSigner.Sign(PdfSnapshot.Read(source), Target, [new SignaturePlacement(Ink, 0, 0, 0, 0.5)]);
 
         Assert.Equal(2, Directory.GetFiles(_folder).Length);
     }
@@ -290,7 +290,7 @@ public sealed class PdfSignerTests : IDisposable
     {
         var source = WritePdf("source.pdf", "", "");
 
-        PdfSigner.Sign(source, Target, [new SignaturePlacement(Ink, 0, 0, 0, 0.5)]);
+        PdfSigner.Sign(PdfSnapshot.Read(source), Target, [new SignaturePlacement(Ink, 0, 0, 0, 0.5)]);
 
         using var document = PdfReader.Open(Target, PdfDocumentOpenMode.Modify);
 
@@ -304,7 +304,7 @@ public sealed class PdfSignerTests : IDisposable
     {
         var source = WritePdf("source.pdf", "", "");
 
-        PdfSigner.Sign(source, Target, [new SignaturePlacement(Ink, 0, 0, 0, 0.5)]);
+        PdfSigner.Sign(PdfSnapshot.Read(source), Target, [new SignaturePlacement(Ink, 0, 0, 0, 0.5)]);
 
         // Le coin haut gauche affiché, en haut de la page de 800 points.
         Assert.Contains("0 800 m\n", ContentOf(Target, 0));
@@ -315,7 +315,7 @@ public sealed class PdfSignerTests : IDisposable
     {
         var source = WritePdf("source.pdf", "", "/Rotate 90 /CropBox [100 100 500 700]");
 
-        PdfSigner.Sign(source, Target, [new SignaturePlacement(Ink, 0, 0, 0, 0.5)]);
+        PdfSigner.Sign(PdfSnapshot.Read(source), Target, [new SignaturePlacement(Ink, 0, 0, 0, 0.5)]);
 
         // Le coin haut gauche affiché d'une page tournée de 90° est son coin bas gauche.
         Assert.Contains("100 100 m\n", ContentOf(Target, 0));
@@ -353,25 +353,107 @@ public sealed class PdfSignerTests : IDisposable
     [Fact]
     public void A_readable_pdf_can_be_signed_but_not_a_damaged_one()
     {
-        Assert.True(PdfSigner.CanSign(WritePdf("source.pdf", "", "")));
+        Assert.True(PdfSigner.CanSign(PdfSnapshot.Read(WritePdf("source.pdf", "", ""))));
 
         var damaged = Path.Combine(_folder, "abime.pdf");
         File.WriteAllText(damaged, "ceci n'est pas un PDF");
 
-        Assert.False(PdfSigner.CanSign(damaged));
-        Assert.False(PdfSigner.CanSign(Path.Combine(_folder, "absent.pdf")));
+        Assert.False(PdfSigner.CanSign(PdfSnapshot.Read(damaged)));
+        Assert.Throws<FileNotFoundException>(() => PdfSnapshot.Read(Path.Combine(_folder, "absent.pdf")));
     }
 
     [Fact]
     public void An_encrypted_pdf_cannot_be_signed()
     {
-        Assert.False(PdfSigner.CanSign(WritePdf("chiffre.pdf", "/Encrypt 99 0 R", "")));
+        Assert.False(PdfSigner.CanSign(PdfSnapshot.Read(WritePdf("chiffre.pdf", "/Encrypt 99 0 R", ""))));
     }
 
     [Fact]
     public void An_existing_digital_signature_is_detected()
     {
-        Assert.False(PdfSigner.HasDigitalSignature(WritePdf("plain.pdf", "", "")));
-        Assert.True(PdfSigner.HasDigitalSignature(WritePdf("digital.pdf", "/AcroForm << /SigFlags 3 /Fields [] >>", "")));
+        Assert.False(PdfSigner.HasDigitalSignature(PdfSnapshot.Read(WritePdf("plain.pdf", "", ""))));
+        Assert.True(PdfSigner.HasDigitalSignature(PdfSnapshot.Read(WritePdf("digital.pdf", "/AcroForm << /SigFlags 3 /Fields [] >>", ""))));
+    }
+
+    [Fact]
+    public void The_signature_goes_on_the_version_read_even_if_the_file_is_replaced()
+    {
+        var source = WritePdf("source.pdf", "", "");
+        var snapshot = PdfSnapshot.Read(source);
+
+        Assert.False(snapshot.HasChangedOnDisk());
+
+        WritePdf("source.pdf", "", "", "");
+
+        Assert.True(snapshot.HasChangedOnDisk());
+
+        PdfSigner.Sign(snapshot, Target, [new SignaturePlacement(Ink, 0, 0, 0, 0.5)]);
+
+        using var document = PdfReader.Open(Target, PdfDocumentOpenMode.Modify);
+        Assert.Equal(1, document.PageCount);
+    }
+
+    [Fact]
+    public void A_deleted_original_counts_as_changed()
+    {
+        var source = WritePdf("source.pdf", "", "");
+        var snapshot = PdfSnapshot.Read(source);
+
+        File.Delete(source);
+
+        Assert.True(snapshot.HasChangedOnDisk());
+    }
+
+    [Theory]
+    [InlineData("0.001 0 0 0.001 0 0 cm q", 1)]
+    [InlineData("q q 2 0 0 2 0 0 cm", 1)]
+    [InlineData("Q Q 0.5 0 0 0.5 0 0 cm", 3)]
+    [InlineData("Q q Q q", 2)]
+    [InlineData("q BT (Q) Tj ET Q", 1)]
+    public void Unbalanced_page_content_cannot_shift_the_signature(string content, int opening)
+    {
+        var source = WritePdfWithContent(content);
+
+        PdfSigner.Sign(PdfSnapshot.Read(source), Target, [new SignaturePlacement(Ink, 0, 0, 0, 0.5)]);
+
+        var signed = ContentOf(Target, 0);
+        var ink = signed.IndexOf(" RG ", StringComparison.Ordinal);
+        var before = Encoding.ASCII.GetBytes(signed[..signed.LastIndexOf("q ", ink, StringComparison.Ordinal)]);
+
+        // Au moment de tracer la signature, l'état graphique est revenu exactement à celui de départ.
+        Assert.Equal(new GraphicsStateBalance(0, 0), GraphicsStateBalance.Measure(before));
+        Assert.StartsWith(string.Concat(Enumerable.Repeat("q\n", opening)), signed, StringComparison.Ordinal);
+    }
+
+    private string WritePdfWithContent(string content)
+    {
+        var path = Path.Combine(_folder, "contenu.pdf");
+        var objects = new[]
+        {
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 800] /Contents 4 0 R >>",
+            $"<< /Length {content.Length} >>\nstream\n{content}\nendstream",
+        };
+        var pdf = new StringBuilder("%PDF-1.4\n");
+        var offsets = new List<int>();
+
+        for (var i = 0; i < objects.Length; i++)
+        {
+            offsets.Add(pdf.Length);
+            pdf.Append(CultureInfo.InvariantCulture, $"{i + 1} 0 obj\n{objects[i]}\nendobj\n");
+        }
+
+        var xref = pdf.Length;
+        pdf.Append(CultureInfo.InvariantCulture, $"xref\n0 {objects.Length + 1}\n0000000000 65535 f \n");
+
+        foreach (var offset in offsets)
+        {
+            pdf.Append(CultureInfo.InvariantCulture, $"{offset:D10} 00000 n \n");
+        }
+
+        pdf.Append(CultureInfo.InvariantCulture, $"trailer\n<< /Size {objects.Length + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+        File.WriteAllBytes(path, Encoding.ASCII.GetBytes(pdf.ToString()));
+        return path;
     }
 }

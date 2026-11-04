@@ -59,6 +59,7 @@ Type: filesandordirs; Name: "{localappdata}\Legendary Pen"
 ; Contenus privés : ils ne doivent pas rester sur le PC. Les réglages sont gardés pour une réinstallation.
 Type: filesandordirs; Name: "{userappdata}\Legendary Pen\annotations"
 Type: files; Name: "{userappdata}\Legendary Pen\signature.json"
+Type: files; Name: "{userappdata}\Legendary Pen\signature.json.*.tmp"
 
 [Icons]
 Name: "{autoprograms}\Legendary Pen"; Filename: "{app}\LegendaryPen.exe"

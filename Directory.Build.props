@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <!-- Dépendances transitives comprises. Une faille moyenne ou pire bloque la compilation, donc aussi la publication. -->
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <NuGetAuditLevel>low</NuGetAuditLevel>
+    <WarningsAsErrors>$(WarningsAsErrors);NU1902;NU1903;NU1904</WarningsAsErrors>
+  </PropertyGroup>
+</Project>

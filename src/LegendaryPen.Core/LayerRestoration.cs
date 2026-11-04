@@ -104,7 +104,7 @@ public static class LayerRestoration
             }
             else if (layers.Count < LayerStack.MaxLayers)
             {
-                var number = layers.Any(info => info.Number == layer.Number) ? nextNumber : layer.Number;
+                var number = layer.Number is < 1 or >= MaxNumber || layers.Any(info => info.Number == layer.Number) ? nextNumber : layer.Number;
                 layers.Add(new LayerInfo(layer.Id, number, layer.IsVisible));
                 nextNumber = Math.Max(nextNumber, number + 1);
                 targets[layer.Id] = layer.Id;

@@ -9,6 +9,8 @@
   <ItemGroup>
     <!-- Verrouillé : les versions suivantes de PDFsharp passent sous AGPL-3.0. -->
     <PackageReference Include="PDFsharp" Version="[6.2.4]" />
+    <!-- Tiré par PDFsharp en 8.0.1, touché par CVE-2026-84008 et CVE-2026-70162. -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="8.0.2" />
   </ItemGroup>
 
 </Project>

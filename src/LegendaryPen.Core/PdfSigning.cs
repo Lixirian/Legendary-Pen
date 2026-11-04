@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using PdfSharp.Pdf;
@@ -105,6 +106,206 @@ public static class PdfFiles
         string.Equals(Path.GetFullPath(first), Path.GetFullPath(second), StringComparison.OrdinalIgnoreCase);
 }
 
+/// <summary>
+/// Le document tel qu'il a été lu une fois pour toutes : contrôle, aperçu et signature travaillent sur ces mêmes octets.
+/// Un fichier remplacé sur le disque pendant qu'on signe ne peut donc pas recevoir la signature à la place de celui affiché.
+/// </summary>
+public sealed class PdfSnapshot
+{
+    public const long MaxBytes = 500L * 1024 * 1024;
+
+    private readonly byte[] _bytes;
+    private readonly byte[] _hash;
+
+    public PdfSnapshot(string path, byte[] bytes)
+    {
+        Path = path;
+        _bytes = bytes;
+        _hash = SHA256.HashData(bytes);
+    }
+
+    public string Path { get; }
+
+    public ReadOnlyMemory<byte> Bytes => _bytes;
+
+    /// <exception cref="InvalidDataException">Le fichier dépasse la taille acceptée.</exception>
+    public static PdfSnapshot Read(string path)
+    {
+        if (new FileInfo(path).Length > MaxBytes)
+        {
+            throw new InvalidDataException(Loc.T("Ce PDF est trop volumineux pour être signé ici (500 Mo au plus)."));
+        }
+
+        return new PdfSnapshot(path, File.ReadAllBytes(path));
+    }
+
+    public MemoryStream OpenRead() => new(_bytes, writable: false);
+
+    /// <summary>Vrai si le fichier n'est plus celui qui a été lu, ou s'il est devenu illisible.</summary>
+    public bool HasChangedOnDisk()
+    {
+        try
+        {
+            using var file = File.OpenRead(Path);
+            return !SHA256.HashData(file).AsSpan().SequenceEqual(_hash);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return true;
+        }
+    }
+}
+
+/// <summary>Taille de rendu d'une page : une page démesurée ne doit pas réclamer une image de plusieurs gigaoctets.</summary>
+public static class PdfRenderSize
+{
+    public const int PreferredWidth = 1800;
+    public const int MaxSide = 8192;
+    public const double MaxPixels = 40_000_000;
+
+    public static (uint Width, uint Height) For(double pageWidth, double pageHeight)
+    {
+        if (!(pageWidth > 0) || !(pageHeight > 0) || double.IsInfinity(pageWidth) || double.IsInfinity(pageHeight))
+        {
+            return (PreferredWidth, PreferredWidth);
+        }
+
+        var aspect = pageWidth / pageHeight;
+        var width = Math.Min(PreferredWidth, Math.Min(MaxSide * aspect, Math.Sqrt(MaxPixels * aspect)));
+        var height = width / aspect;
+
+        return ((uint)Math.Clamp(Math.Round(width), 1, MaxSide), (uint)Math.Clamp(Math.Round(height), 1, MaxSide));
+    }
+}
+
+/// <summary>Empilement des états graphiques d'un flux de contenu PDF.</summary>
+/// <param name="Final">Niveau atteint à la fin : positif si des <c>q</c> restent ouverts.</param>
+/// <param name="Lowest">Niveau le plus bas : négatif si des <c>Q</c> sont en trop.</param>
+public readonly record struct GraphicsStateBalance(int Final, int Lowest)
+{
+    /// <summary>Lecture sans récursion : un contenu hostile ne peut pas épuiser la pile.</summary>
+    public static GraphicsStateBalance Measure(ReadOnlySpan<byte> content)
+    {
+        var level = 0;
+        var lowest = 0;
+        var position = 0;
+
+        while (position < content.Length)
+        {
+            var current = content[position];
+
+            if (IsWhitespace(current))
+            {
+                position++;
+            }
+            else if (current == (byte)'%')
+            {
+                while (position < content.Length && content[position] is not ((byte)'\r' or (byte)'\n'))
+                {
+                    position++;
+                }
+            }
+            else if (current == (byte)'(')
+            {
+                position = AfterLiteralString(content, position);
+            }
+            else if (current == (byte)'<' && position + 1 < content.Length && content[position + 1] != (byte)'<')
+            {
+                var end = content[position..].IndexOf((byte)'>');
+                position = end < 0 ? content.Length : position + end + 1;
+            }
+            else if (current == (byte)'/')
+            {
+                // Un nom, jamais une instruction : /q désigne une ressource.
+                position++;
+
+                while (position < content.Length && !IsWhitespace(content[position]) && !IsDelimiter(content[position]))
+                {
+                    position++;
+                }
+            }
+            else if (IsDelimiter(current))
+            {
+                position++;
+            }
+            else
+            {
+                var start = position;
+
+                while (position < content.Length && !IsWhitespace(content[position]) && !IsDelimiter(content[position]))
+                {
+                    position++;
+                }
+
+                var token = content[start..position];
+
+                if (token.SequenceEqual("q"u8))
+                {
+                    level++;
+                }
+                else if (token.SequenceEqual("Q"u8))
+                {
+                    level--;
+                    lowest = Math.Min(lowest, level);
+                }
+                else if (token.SequenceEqual("ID"u8))
+                {
+                    position = AfterInlineImage(content, position);
+                }
+            }
+        }
+
+        return new GraphicsStateBalance(level, lowest);
+    }
+
+    private static int AfterLiteralString(ReadOnlySpan<byte> content, int position)
+    {
+        var depth = 0;
+
+        for (; position < content.Length; position++)
+        {
+            switch (content[position])
+            {
+                case (byte)'\\':
+                    position++;
+                    break;
+                case (byte)'(':
+                    depth++;
+                    break;
+                case (byte)')':
+                    if (--depth == 0)
+                    {
+                        return position + 1;
+                    }
+
+                    break;
+            }
+        }
+
+        return content.Length;
+    }
+
+    // Les octets d'une image en ligne peuvent ressembler à n'importe quelle instruction.
+    private static int AfterInlineImage(ReadOnlySpan<byte> content, int position)
+    {
+        for (var i = position; i + 1 < content.Length; i++)
+        {
+            if (content[i] == (byte)'E' && content[i + 1] == (byte)'I' &&
+                i > 0 && IsWhitespace(content[i - 1]) &&
+                (i + 2 == content.Length || IsWhitespace(content[i + 2])))
+            {
+                return i + 2;
+            }
+        }
+
+        return content.Length;
+    }
+
+    private static bool IsWhitespace(byte value) => value is 0 or 9 or 10 or 12 or 13 or 32;
+
+    private static bool IsDelimiter(byte value) => value is (byte)'(' or (byte)')' or (byte)'<' or (byte)'>' or (byte)'[' or (byte)']' or (byte)'{' or (byte)'}' or (byte)'/' or (byte)'%';
+}
+
 /// <summary>Ajoute des signatures par-dessus les pages d'un PDF, sans toucher au contenu existant.</summary>
 public static class PdfSigner
 {
@@ -144,23 +345,30 @@ public static class PdfSigner
         return content.ToString();
     }
 
-    /// <summary>Écrit une copie signée. Le fichier d'origine n'est jamais modifié.</summary>
-    public static void Sign(string source, string destination, IReadOnlyCollection<SignaturePlacement> placements)
+    /// <summary>Écrit une copie signée à partir du document lu. Le fichier d'origine n'est jamais modifié.</summary>
+    public static void Sign(PdfSnapshot source, string destination, IReadOnlyCollection<SignaturePlacement> placements)
     {
-        if (PdfFiles.IsSameFile(source, destination))
+        if (PdfFiles.IsSameFile(source.Path, destination))
         {
             throw new ArgumentException(Loc.T("La copie signée ne peut pas remplacer le fichier d'origine."), nameof(destination));
         }
 
-        using var document = PdfReader.Open(source, PdfDocumentOpenMode.Modify);
+        using var input = source.OpenRead();
+        using var document = PdfReader.Open(input, PdfDocumentOpenMode.Modify);
+        var pageCount = document.PageCount;
+        var pages = placements.Select(placement => placement.PageIndex).Distinct().ToList();
 
         foreach (var group in placements.GroupBy(placement => placement.PageIndex))
         {
             var page = document.Pages[group.Key];
+            var balance = GraphicsStateBalance.Measure(ContentOf(page));
 
-            // Le contenu d'origine est isolé : un état graphique laissé ouvert ne décale pas la signature.
-            page.Contents.PrependContent().CreateStream(Encoding.ASCII.GetBytes("q\n"));
-            page.Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes("Q\n" + BuildContent(FrameOf(page), group)));
+            // Le contenu d'origine est isolé, même déséquilibré : des Q en trop ne dépilent que nos q, et aucun q laissé ouvert ne survit.
+            var opening = 1 - balance.Lowest;
+            var closing = opening + balance.Final;
+
+            page.Contents.PrependContent().CreateStream(Encoding.ASCII.GetBytes(Repeat("q\n", opening)));
+            page.Contents.AppendContent().CreateStream(Encoding.ASCII.GetBytes(Repeat("Q\n", closing) + BuildContent(FrameOf(page), group)));
         }
 
         var temporaryPath = $"{destination}.{Guid.NewGuid():N}.tmp";
@@ -168,6 +376,7 @@ public static class PdfSigner
         try
         {
             document.Save(temporaryPath);
+            VerifyCopy(temporaryPath, pageCount, pages);
             File.Move(temporaryPath, destination, overwrite: true);
         }
         finally
@@ -177,18 +386,19 @@ public static class PdfSigner
     }
 
     /// <summary>Faux si le PDF est protégé, interdit la modification ou ne peut pas être relu.</summary>
-    public static bool CanSign(string path)
+    public static bool CanSign(PdfSnapshot source)
     {
         try
         {
             // PDFsharp ouvre certains fichiers chiffrés sans erreur, puis échoue en lisant leur contenu :
             // on regarde directement si le fichier déclare un chiffrement. Cette entrée reste toujours en clair.
-            if (File.ReadAllBytes(path).AsSpan().IndexOf("/Encrypt"u8) >= 0)
+            if (source.Bytes.Span.IndexOf("/Encrypt"u8) >= 0)
             {
                 return false;
             }
 
-            using var document = PdfReader.Open(path, PdfDocumentOpenMode.Modify);
+            using var input = source.OpenRead();
+            using var document = PdfReader.Open(input, PdfDocumentOpenMode.Modify);
             return document.PageCount > 0;
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
@@ -199,14 +409,55 @@ public static class PdfSigner
     }
 
     /// <summary>Une signature numérique existante cesse d'être valide dès que le fichier change.</summary>
-    public static bool HasDigitalSignature(string path)
+    public static bool HasDigitalSignature(PdfSnapshot source)
     {
         const int SignaturesExist = 1;
 
-        using var document = PdfReader.Open(path, PdfDocumentOpenMode.Import);
+        using var input = source.OpenRead();
+        using var document = PdfReader.Open(input, PdfDocumentOpenMode.Import);
 
         return document.Internals.Catalog.Elements.GetDictionary("/AcroForm") is { } form
             && (form.Elements.GetInteger("/SigFlags") & SignaturesExist) != 0;
+    }
+
+    private static string Repeat(string text, int count) => string.Concat(Enumerable.Repeat(text, count));
+
+    private static byte[] ContentOf(PdfPage page)
+    {
+        using var content = new MemoryStream();
+
+        foreach (var part in page.Contents)
+        {
+            // Un flux qu'on ne sait pas décoder rendrait la mesure fausse : mieux vaut refuser que de déplacer la signature.
+            var bytes = part.Stream?.UnfilteredValue ?? [];
+
+            if (bytes.Length == 0 && part.Stream?.Value is { Length: > 0 })
+            {
+                throw new InvalidDataException(Loc.T("Le contenu de cette page ne peut pas être lu."));
+            }
+
+            content.Write(bytes);
+            content.WriteByte((byte)'\n');
+        }
+
+        return content.ToArray();
+    }
+
+    // Dernier contrôle avant de remplacer quoi que ce soit : la copie doit se relire, garder toutes ses pages et finir à l'état graphique d'origine.
+    private static void VerifyCopy(string path, int pageCount, IReadOnlyList<int> signedPages)
+    {
+        using var copy = PdfReader.Open(path, PdfDocumentOpenMode.Modify);
+
+        var isSound = copy.PageCount == pageCount && signedPages.All(index =>
+        {
+            var balance = GraphicsStateBalance.Measure(ContentOf(copy.Pages[index]));
+            return balance is { Final: 0, Lowest: 0 };
+        });
+
+        if (!isSound)
+        {
+            throw new InvalidDataException(Loc.T("La copie signée n'a pas passé le contrôle de relecture."));
+        }
     }
 
     private static PdfPageFrame FrameOf(PdfPage page)
@@ -223,18 +474,27 @@ public static class PdfSigner
     }
 }
 
-/// <summary>Signature mémorisée sur ce poste uniquement.</summary>
-public sealed class SignatureStore(string path)
+/// <summary>Signature mémorisée sur ce poste uniquement, et chiffrée avant d'atteindre le disque.</summary>
+/// <param name="path">Fichier chiffré.</param>
+/// <param name="protect">Chiffrement pour l'utilisateur courant.</param>
+/// <param name="unprotect">Déchiffrement ; lève <see cref="CryptographicException"/> si le fichier n'est pas lisible.</param>
+/// <param name="legacyPath">Fichier en clair des versions précédentes, repris puis supprimé.</param>
+public sealed class SignatureStore(string path, Func<byte[], byte[]> protect, Func<byte[], byte[]> unprotect, string? legacyPath = null)
 {
-    public bool Exists => File.Exists(path);
+    public bool Exists => File.Exists(path) || (legacyPath is not null && File.Exists(legacyPath));
 
     public SignatureInk? Load()
     {
+        if (!File.Exists(path) && legacyPath is not null && File.Exists(legacyPath))
+        {
+            return ImportLegacyFile(legacyPath);
+        }
+
         try
         {
-            return JsonSerializer.Deserialize<SignatureInk>(File.ReadAllText(path));
+            return Usable(JsonSerializer.Deserialize<SignatureInk>(unprotect(File.ReadAllBytes(path))));
         }
-        catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException or CryptographicException)
         {
             return null;
         }
@@ -248,7 +508,7 @@ public sealed class SignatureStore(string path)
 
         try
         {
-            File.WriteAllText(temporaryPath, JsonSerializer.Serialize(signature));
+            File.WriteAllBytes(temporaryPath, protect(JsonSerializer.SerializeToUtf8Bytes(signature)));
             File.Move(temporaryPath, path, overwrite: true);
         }
         finally
@@ -257,5 +517,47 @@ public sealed class SignatureStore(string path)
         }
     }
 
-    public void Delete() => File.Delete(path);
+    public void Delete()
+    {
+        File.Delete(path);
+
+        if (legacyPath is not null)
+        {
+            File.Delete(legacyPath);
+        }
+    }
+
+    // Un fichier modifié à la main ne doit pas faire tomber la fenêtre en traçant la signature.
+    private static SignatureInk? Usable(SignatureInk? ink)
+    {
+        static bool IsPositive(double value) => value > 0 && !double.IsInfinity(value);
+
+        return ink is { Strokes.Count: > 0 } &&
+               IsPositive(ink.AspectRatio) &&
+               IsPositive(ink.ThicknessShare) &&
+               ink.Strokes.All(stroke => stroke is { Count: > 0 })
+            ? ink
+            : null;
+    }
+
+    // Le fichier en clair ne disparaît qu'une fois la copie chiffrée écrite.
+    private SignatureInk? ImportLegacyFile(string legacy)
+    {
+        try
+        {
+            var ink = Usable(JsonSerializer.Deserialize<SignatureInk>(File.ReadAllText(legacy)));
+
+            if (ink is not null)
+            {
+                Save(ink);
+            }
+
+            File.Delete(legacy);
+            return ink;
+        }
+        catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException or CryptographicException)
+        {
+            return null;
+        }
+    }
 }
