@@ -55,6 +55,10 @@ public sealed record AppSettings
     public IReadOnlyDictionary<string, double>? ToolSizes { get; init; }
 
     public bool KeepAnnotations { get; init; }
+
+    public RecordingAudio RecordingAudio { get; init; }
+
+    public int RecordingCountdownSeconds { get; init; } = 3;
 }
 
 /// <summary>Lit et écrit les réglages sans jamais laisser de fichier à moitié écrit.</summary>
