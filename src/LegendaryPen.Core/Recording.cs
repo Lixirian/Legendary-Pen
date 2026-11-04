@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Globalization;
 
 namespace LegendaryPen.Core;
@@ -91,4 +92,64 @@ public static class RecordingRules
         (Math.Max(2, width & ~1), Math.Max(2, height & ~1));
 
     public static bool HasRoomToContinue(long freeBytes) => freeBytes >= MinFreeBytes;
+
+    /// <summary>Débit vidéo : 8 Mb/s en 2560 x 1440, proportionnel à la surface, entre 2 et 40 Mb/s.</summary>
+    public static int VideoBitRate(int width, int height)
+    {
+        const long ReferenceBitRate = 8_000_000;
+        const long ReferenceArea = 2560L * 1440L;
+
+        return (int)Math.Clamp(ReferenceBitRate * width * height / ReferenceArea, 2_000_000, 40_000_000);
+    }
+
+    /// <summary>
+    /// Vrai si le flux est un MP4 fini : des boîtes qui tiennent toutes dans le fichier, dont l'index « moov ».
+    /// L'encodeur n'écrit cet index qu'à la fin : sans lui, le fichier est illisible.
+    /// </summary>
+    public static bool IsCompleteMp4(Stream stream)
+    {
+        const int HeaderSize = 8;
+        Span<byte> header = stackalloc byte[HeaderSize];
+        var hasIndex = false;
+        var position = 0L;
+        stream.Seek(0, SeekOrigin.Begin);
+
+        while (position < stream.Length)
+        {
+            if (stream.Length - position < HeaderSize)
+            {
+                return false;
+            }
+
+            stream.ReadExactly(header);
+            long size = BinaryPrimitives.ReadUInt32BigEndian(header);
+            var isIndex = header[4..].SequenceEqual("moov"u8);
+
+            if (size == 1)
+            {
+                if (stream.Length - position < 2 * HeaderSize)
+                {
+                    return false;
+                }
+
+                stream.ReadExactly(header);
+                size = BinaryPrimitives.ReadInt64BigEndian(header);
+            }
+            else if (size == 0)
+            {
+                size = stream.Length - position;
+            }
+
+            if (size < HeaderSize || size > stream.Length - position)
+            {
+                return false;
+            }
+
+            hasIndex |= isIndex;
+            position += size;
+            stream.Seek(position, SeekOrigin.Begin);
+        }
+
+        return hasIndex;
+    }
 }

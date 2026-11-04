@@ -146,4 +146,65 @@ public class RecordingTests
             File.Delete(path);
         }
     }
+
+    [Theory]
+    [InlineData(2560, 1440, 8_000_000)]
+    [InlineData(1920, 1080, 4_500_000)]
+    [InlineData(3840, 2160, 18_000_000)]
+    [InlineData(1280, 720, 2_000_000)]
+    [InlineData(640, 480, 2_000_000)]
+    [InlineData(7680, 4320, 40_000_000)]
+    public void The_bit_rate_follows_the_area_within_its_limits(int width, int height, int expected)
+    {
+        Assert.Equal(expected, RecordingRules.VideoBitRate(width, height));
+    }
+
+    private static byte[] Box(string name, int payload) =>
+        [.. BitConverter.GetBytes(System.Net.IPAddress.HostToNetworkOrder(payload + 8)), .. System.Text.Encoding.ASCII.GetBytes(name), .. new byte[payload]];
+
+    private static bool IsComplete(params byte[][] boxes) => RecordingRules.IsCompleteMp4(new MemoryStream(boxes.SelectMany(box => box).ToArray()));
+
+    [Fact]
+    public void A_file_with_its_index_is_a_complete_video()
+    {
+        Assert.True(IsComplete(Box("ftyp", 16), Box("mdat", 100), Box("moov", 40)));
+    }
+
+    [Fact]
+    public void A_file_without_index_is_not_a_complete_video()
+    {
+        Assert.False(IsComplete(Box("ftyp", 16), Box("mdat", 100)));
+        Assert.False(IsComplete([]));
+    }
+
+    [Fact]
+    public void A_cut_file_is_not_a_complete_video()
+    {
+        var cut = Box("moov", 40)[..30];
+
+        Assert.False(IsComplete(Box("ftyp", 16), cut));
+        Assert.False(IsComplete(Box("moov", 40), [0, 0, 1]));
+    }
+
+    [Fact]
+    public void A_box_with_a_wrong_size_is_not_a_complete_video()
+    {
+        Assert.False(IsComplete(Box("moov", 40), [0, 0, 0, 4, 0x66, 0x72, 0x65, 0x65]));
+    }
+
+    [Fact]
+    public void An_open_ended_data_box_hides_the_index()
+    {
+        byte[] openEnded = [0, 0, 0, 0, .. System.Text.Encoding.ASCII.GetBytes("mdat"), .. Box("moov", 40)];
+
+        Assert.False(IsComplete(Box("ftyp", 16), openEnded));
+    }
+
+    [Fact]
+    public void A_large_data_box_is_read_with_its_long_size()
+    {
+        byte[] large = [0, 0, 0, 1, .. System.Text.Encoding.ASCII.GetBytes("mdat"), 0, 0, 0, 0, 0, 0, 0, 26, .. new byte[10]];
+
+        Assert.True(IsComplete(large, Box("moov", 40)));
+    }
 }

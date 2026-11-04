@@ -375,6 +375,27 @@ internal static partial class Win32
         return monitors;
     }
 
+    /// <summary>Renvoie le descripteur de cet écran, ou zéro s'il n'est plus là.</summary>
+    public static IntPtr MonitorHandle(MonitorArea monitor)
+    {
+        var found = IntPtr.Zero;
+
+        bool Compare(IntPtr candidate, IntPtr deviceContext, IntPtr clip, IntPtr data)
+        {
+            var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+
+            if (GetMonitorInfoW(candidate, ref info) && info.DeviceName == monitor.DeviceName)
+            {
+                found = candidate;
+            }
+
+            return true;
+        }
+
+        EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, Compare, IntPtr.Zero);
+        return found;
+    }
+
     public static bool RegisterGlobalHotKey(IntPtr window, int id, uint modifiers, uint virtualKey)
     {
         return RegisterHotKey(window, id, modifiers | ModNoRepeat, virtualKey);

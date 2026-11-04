@@ -38,6 +38,14 @@ public sealed partial class LocalizationTests : IDisposable
         "The active layer is not in the stack.",
         "The active layer must be visible.",
         "The next number must follow every layer number.",
+        "Screen recording is not supported on this system.",
+        "A recorder runs only once.",
+        "The monitor to record is gone.",
+        "The capture sent no frame.",
+        "The encoder was refused: ",
+        "A frame could not be sent to the encoder.",
+        "The encoder did not stop in time.",
+        "The encoder keeps every frame.",
     ];
 
     public void Dispose() => Loc.Use(AppLanguage.French, "fr");
